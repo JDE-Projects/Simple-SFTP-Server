@@ -1,0 +1,24 @@
+Simple SFTP Server: Third-Party Licenses
+========================================
+
+The Simple SFTP Server source is released under the PolyForm Noncommercial
+License 1.0.0 (see LICENSE). The packaged Windows build bundles the third-party
+components below; each remains under its own license. This file is a notice,
+not legal advice.
+
+# Always bundled (every app)
+PySide6 / Qt          LGPL-3.0       qt.io/licensing
+pywebview             BSD-3-Clause   github.com/r0x0r/pywebview
+Sora (font)           OFL-1.1        github.com/sora-xor/sora-font
+  Sora Copyright 2019 The Sora Project Authors
+JetBrains Mono        OFL-1.1        github.com/JetBrains/JetBrainsMono
+  JetBrains Mono Copyright 2020 The JetBrains Mono Project Authors
+
+# Per-app (this tool's imports)
+Paramiko              LGPL-2.1       paramiko.org   (+ cryptography, bcrypt, PyNaCl)
+cryptography          Apache-2.0 / BSD-3   github.com/pyca/cryptography
+
+Paramiko's bundled crypto deps (cryptography, bcrypt, PyNaCl) are Apache-2.0.
+Password hashing and host-key handling use bcrypt and cryptography, both of
+which install with paramiko. Full license texts are available at the source
+links above.

@@ -1,0 +1,27 @@
+# Server config (usernames, folders, settings, and bcrypt password hashes) - keep private
+server_config.json
+
+# Server host identity key (trust-on-first-use) - never commit
+host_ed25519
+host_ed25519.pub
+
+# Quick Start share folder (created at runtime next to the app)
+QuickStart-Share/
+
+# Per-user share folders made by the "Make folder" helper
+*-share/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.pyc
+
+# Personal local launcher (not for distribution)
+Launch_*.bat
+
+# Optional debug logs (written next to the exe when toggled on)
+Debug_Log_*.txt

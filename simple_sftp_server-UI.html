@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simple SFTP Server</title>
+<style>
+  @font-face{font-family:"Sora";src:url("fonts/Sora-Light.woff2") format("woff2");font-weight:300;}
+  @font-face{font-family:"Sora";src:url("fonts/Sora-Regular.woff2") format("woff2");font-weight:400;}
+  @font-face{font-family:"Sora";src:url("fonts/Sora-Medium.woff2") format("woff2");font-weight:500;}
+  @font-face{font-family:"Sora";src:url("fonts/Sora-SemiBold.woff2") format("woff2");font-weight:600;}
+  @font-face{font-family:"Sora";src:url("fonts/Sora-Bold.woff2") format("woff2");font-weight:700;}
+  @font-face{font-family:"JetBrains Mono";src:url("fonts/JetBrainsMono-Regular.woff2") format("woff2");font-weight:400;}
+  @font-face{font-family:"JetBrains Mono";src:url("fonts/JetBrainsMono-Medium.woff2") format("woff2");font-weight:500;}
+  :root{
+    --bg:#0a0e14;--bg-2:#0e131c;--panel:#121823;--panel-2:#161d2a;--border:#20293a;--border-2:#2b3650;
+    --text:#dfe7f2;--text-dim:#8a98b0;--text-faint:#5a6678;--accent:#4dd6c1;--accent-2:#2bb6a3;--glow:rgba(77,214,193,.35);
+    --amber:#f0b860;--red:#ff6b7a;--green:#5ce39b;--blue:#6db3ff;--radius:14px;--radius-sm:9px;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{font-family:"Sora",sans-serif;color:var(--text);font-size:13px;
+    background:radial-gradient(900px 500px at 12% -10%,rgba(77,214,193,.10),transparent 60%),
+      radial-gradient(800px 500px at 100% 0%,rgba(109,179,255,.07),transparent 55%),var(--bg);
+    -webkit-user-select:none;user-select:none;overflow:hidden;}
+  .mono{font-family:"JetBrains Mono",monospace;}
+  .meta{font-size:11px;}
+  .grow{flex:1 1 auto;}
+  .app{display:flex;flex-direction:column;height:100vh;padding:12px 14px 8px;gap:10px;}
+  .panel{background:linear-gradient(180deg,var(--panel),var(--bg-2));border:1px solid var(--border);border-radius:var(--radius);}
+  .field-label{display:block;font-size:10.5px;color:var(--text-dim);margin-bottom:4px;}
+  input,select,textarea{font-family:inherit;font-size:12.5px;color:var(--text);background:var(--panel-2);border:1px solid var(--border-2);
+    border-radius:var(--radius-sm);padding:7px 10px;outline:none;transition:border-color .15s,box-shadow .15s;}
+  textarea{resize:vertical;width:100%;line-height:1.45;}
+  input::placeholder,textarea::placeholder{color:var(--text-faint);}
+  input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(77,214,193,.12);}
+  input:disabled,select:disabled{opacity:.5;}
+  select{appearance:none;cursor:pointer;padding-right:26px;
+    background-image:linear-gradient(45deg,transparent 50%,var(--text-dim) 50%),linear-gradient(135deg,var(--text-dim) 50%,transparent 50%);
+    background-position:calc(100% - 14px) center,calc(100% - 9px) center;background-size:5px 5px,5px 5px;background-repeat:no-repeat;}
+  button{font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;border-radius:var(--radius-sm);
+    padding:7px 13px;border:1px solid transparent;transition:transform .15s,border-color .15s,box-shadow .15s,background .15s;}
+  .btn-primary{color:#042b27;background:linear-gradient(180deg,var(--accent),var(--accent-2));box-shadow:0 2px 12px var(--glow);}
+  .btn-primary:hover:not(:disabled){transform:translateY(-1px);}
+  .btn-danger{color:#2b0d10;background:linear-gradient(180deg,#ff8a96,var(--red));}
+  .btn-danger:hover:not(:disabled){transform:translateY(-1px);}
+  .btn-ghost{color:var(--text);background:var(--panel-2);border-color:var(--border-2);}
+  .btn-ghost:hover:not(:disabled){border-color:var(--accent);transform:translateY(-1px);}
+  .btn-sm{padding:5px 9px;font-size:11.5px;}
+  button:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;transform:none;}
+
+  /* control bar */
+  .conn{padding:11px 14px;display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
+  .conn .f{display:flex;flex-direction:column;} .conn .f.port input{width:78px;}
+  .vsep{width:1px;height:30px;background:var(--border);margin:0 2px;}
+  .conn-status{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text-dim);padding-bottom:8px;margin-left:auto;}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--text-faint);}
+  .dot.live{background:var(--green);box-shadow:0 0 8px rgba(92,227,155,.6);} .dot.warn{background:var(--amber);} .dot.err{background:var(--red);}
+
+  /* main columns */
+  .main{flex:1 1 auto;display:flex;gap:10px;min-height:0;}
+  .col{display:flex;flex-direction:column;gap:10px;min-width:0;}
+  .card-pane{display:flex;flex-direction:column;min-height:0;overflow:hidden;}
+  .pane-head{padding:9px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;}
+  .pane-title{font-weight:600;font-size:12.5px;display:flex;align-items:center;gap:8px;width:100%;}
+  .pane-body{flex:1 1 auto;overflow:auto;}
+  .pane-body.pad{padding:6px 4px;}
+  .pane-foot{padding:9px 12px;border-top:1px solid var(--border);display:flex;gap:8px;}
+  .badge{font-size:10px;font-weight:600;color:#042b27;background:linear-gradient(180deg,var(--accent),var(--accent-2));
+    padding:2px 8px;border-radius:20px;}
+  .badge.gray{color:var(--text-dim);background:var(--panel-2);border:1px solid var(--border-2);}
+  .badge.amber{color:#3d2800;background:linear-gradient(180deg,#f5c842,var(--amber));}
+
+  /* key/value rows */
+  .kv{display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid rgba(32,41,58,.45);}
+  .kv:last-child{border-bottom:none;}
+  .kv .k{flex:0 0 96px;color:var(--text-dim);font-size:11px;}
+  .kv .v{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .kv .v.fp{font-size:11px;white-space:normal;word-break:break-all;-webkit-user-select:text;user-select:text;}
+  .cp{padding:4px 9px;font-size:11px;font-weight:500;background:var(--panel-2);border:1px solid var(--border-2);color:var(--text-dim);border-radius:7px;}
+  .cp:hover:not(:disabled){color:var(--text);border-color:var(--accent);}
+
+  /* pw field wrapper */
+  .pw-wrap{position:relative;display:flex;align-items:center;flex:1 1 auto;}
+  .pw-wrap input{width:100%;padding-right:34px;}
+  .eye-btn{position:absolute;right:8px;background:none;border:none;padding:0;cursor:pointer;
+    color:var(--text-faint);display:flex;align-items:center;font-size:14px;line-height:1;}
+  .eye-btn:hover{color:var(--text-dim);}
+
+  /* lists */
+  .subhead{font-size:10.5px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.4px;
+    padding:11px 12px 6px;display:flex;align-items:center;}
+  .list{padding:0 12px;}
+  .sess{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:7px;background:var(--panel-2);}
+  .sess .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .sess .sm{font-size:11px;color:var(--text-dim);} .sess .pill{font-size:10px;color:var(--amber);}
+  .feed .row{font-size:11.5px;color:var(--text-dim);padding:4px 2px;border-bottom:1px solid rgba(32,41,58,.4);}
+  .feed .row b{color:var(--text);font-weight:600;} .feed{max-height:150px;overflow:auto;}
+  .empty{color:var(--text-faint);font-size:11.5px;padding:6px 2px;}
+
+  /* transfer */
+  .xfer{padding:2px 12px 4px;}
+  .xname{font-size:11.5px;color:var(--text-dim);margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .qbar{height:7px;background:var(--panel-2);border:1px solid var(--border);border-radius:5px;overflow:hidden;}
+  .qbar > div{height:100%;width:0;background:linear-gradient(90deg,var(--accent-2),var(--accent));transition:width .15s;}
+  .qmeta{font-size:11px;color:var(--text-dim);margin-top:4px;}
+
+  /* users table */
+  table{border-collapse:collapse;width:100%;font-size:12px;}
+  thead th{position:sticky;top:0;z-index:1;text-align:left;font-weight:600;font-size:10.5px;color:var(--text-dim);
+    background:var(--bg-2);padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
+  tbody td{padding:7px 10px;border-bottom:1px solid rgba(32,41,58,.45);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  tbody td.folder{max-width:200px;font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--text-dim);}
+  tbody td.act{text-align:right;}
+  .tag{font-size:10px;color:var(--text-dim);background:var(--panel-2);border:1px solid var(--border-2);padding:2px 7px;border-radius:20px;}
+
+  /* status bar */
+  .statusbar{display:flex;align-items:center;font-size:11px;color:var(--text-dim);padding:0 4px;}
+  .left{display:flex;align-items:center;gap:14px;}
+  .toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer;}
+  .switch{width:32px;height:17px;border-radius:9px;background:var(--panel-2);border:1px solid var(--border-2);position:relative;}
+  .switch::after{content:"";position:absolute;top:1px;left:1px;width:13px;height:13px;border-radius:50%;background:var(--text-faint);transition:left .15s,background .15s;}
+  .toggle.on .switch{background:var(--accent-2);border-color:var(--accent);} .toggle.on .switch::after{left:16px;background:#042b27;}
+  #updateBanner{display:none;align-items:center;gap:10px;background:rgba(77,214,193,.12);border:1px solid var(--accent-2);
+    border-radius:var(--radius-sm);padding:6px 12px;font-size:12px;}
+  #updateBanner.show{display:flex;}
+
+  /* modals */
+  .modal{position:fixed;inset:0;background:rgba(6,9,14,.78);display:none;align-items:center;justify-content:center;z-index:60;}
+  .modal.show{display:flex;}
+  .card{width:560px;max-width:92%;max-height:86vh;overflow:auto;background:linear-gradient(180deg,var(--panel),var(--bg-2));
+    border:1px solid var(--border-2);border-radius:var(--radius);box-shadow:0 20px 60px rgba(0,0,0,.5);padding:20px 22px;}
+  .card h3{margin:0 0 14px;font-size:16px;}
+  .card .row{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:flex-end;}
+  .card .row .f{display:flex;flex-direction:column;flex:1 1 auto;} .card .row .f input,.card .row .f select{width:100%;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:8px;}
+  .chk{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text);cursor:pointer;}
+  .chk input{width:auto;}
+  .errline{font-size:11px;color:var(--red);margin-top:4px;min-height:14px;}
+  .seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--border-2);border-radius:var(--radius-sm);padding:3px;gap:2px;}
+  .seg button{padding:5px 12px;font-weight:500;background:transparent;border:none;color:var(--text-dim);border-radius:6px;}
+  .seg button.on{background:linear-gradient(180deg,var(--accent),var(--accent-2));color:#042b27;}
+  pre.pub{background:var(--panel-2);border:1px solid var(--border);border-radius:7px;padding:10px;font-family:"JetBrains Mono",monospace;
+    font-size:11px;white-space:pre-wrap;word-break:break-all;color:var(--text-dim);max-height:120px;overflow:auto;-webkit-user-select:text;user-select:text;}
+
+  /* permission grid */
+  .perm-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;padding:4px 0 8px;}
+  .perm-chk{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text);cursor:pointer;-webkit-user-select:none;user-select:none;}
+  .perm-chk input[type=checkbox]{width:13px;height:13px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;}
+  .perm-chk.disabled-perm{opacity:.45;pointer-events:none;}
+
+  #toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--panel-2);border:1px solid var(--border-2);
+    color:var(--text);padding:10px 16px;border-radius:9px;font-size:12px;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;
+    box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:90;max-width:70%;} #toast.show{opacity:1;transform:translateX(-50%) translateY(0);} #toast.err{border-color:var(--red);}
+  ::-webkit-scrollbar{width:11px;height:11px;} ::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:6px;border:2px solid var(--bg);}
+</style>
+</head>
+<body>
+<div class="app">
+  <div id="updateBanner"><span id="ubText"></span><span class="grow"></span>
+    <button id="ubView" class="btn-ghost btn-sm">View release</button>
+    <button id="ubDismiss" class="btn-ghost btn-sm">Dismiss</button></div>
+
+  <!-- control bar -->
+  <div class="panel conn">
+    <div class="f port"><label class="field-label">Port</label><input id="port" class="mono" value="2222"></div>
+    <button id="checkBtn" class="btn-ghost">Check Port</button>
+    <button id="startBtn" class="btn-primary">Start Server</button>
+    <button id="stopBtn" class="btn-danger" disabled>Stop</button>
+    <span class="vsep"></span>
+    <button id="quickBtn" class="btn-ghost" title="One click: full-access share with a fresh random password">Quick Start</button>
+    <div class="conn-status"><span id="dot" class="dot"></span><span id="statusText">Stopped</span></div>
+  </div>
+
+  <div class="main">
+    <!-- left column -->
+    <div class="col" style="flex:1.15 1 0">
+      <div class="panel card-pane" id="connCard" style="flex:0 0 auto">
+        <div class="pane-head"><div class="pane-title">Connection Details<span class="grow"></span><span id="accessNote" class="badge gray">Stopped</span></div></div>
+        <div class="pane-body pad">
+          <div class="kv"><span class="k">Address (LAN)</span><span class="v mono" id="vLan">—</span><button class="cp" data-c="vLan">Copy</button></div>
+          <div class="kv"><span class="k">Public IP</span><span class="v mono" id="vPub">—</span><button id="pubBtn" class="cp">Get</button></div>
+          <div class="kv"><span class="k">Port</span><span class="v mono" id="vPort">—</span><button class="cp" data-c="vPort">Copy</button></div>
+          <div class="kv" id="rowUser" style="display:none"><span class="k">Username</span><span class="v mono" id="vUser">—</span><button class="cp" data-c="vUser">Copy</button></div>
+          <div class="kv" id="rowPw" style="display:none"><span class="k">Password</span><span class="v mono" id="vPw">••••••••</span><button id="pwReveal" class="cp">Reveal</button><button id="pwCopy" class="cp">Copy</button></div>
+          <div class="kv"><span class="k">Host key</span><span class="v mono fp" id="vFp">—</span><button class="cp" data-c="vFp">Copy</button></div>
+        </div>
+        <div class="pane-foot"><button id="copyCard" class="btn-ghost btn-sm" disabled>Copy connection card</button>
+          <button id="openFolderBtn" class="btn-ghost btn-sm" style="display:none">Open share folder</button></div>
+      </div>
+
+      <div class="panel card-pane grow" id="livePanel">
+        <div class="pane-head"><div class="pane-title">Live</div></div>
+        <div class="pane-body">
+          <div class="subhead">Connections (<span id="connCount">0</span>)</div>
+          <div id="sessList" class="list"><div class="empty">No clients connected.</div></div>
+          <div class="subhead">Transfer</div>
+          <div class="xfer"><div class="xname mono" id="xName">Idle</div><div class="qbar"><div id="xFill"></div></div><div class="qmeta mono" id="xMeta"></div></div>
+          <div class="subhead">Recent activity</div>
+          <div id="actFeed" class="list feed"><div class="empty">Nothing yet.</div></div>
+          <div class="subhead">Locked out<button id="unlockAll" class="btn-ghost btn-sm" style="display:none;margin-left:10px">Unlock all</button></div>
+          <div id="lockList" class="list" style="padding-bottom:12px"><div class="empty">No lockouts.</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- right column: users -->
+    <div class="col" style="flex:1 1 0">
+      <div class="panel card-pane grow">
+        <div class="pane-head"><div class="pane-title">Users<span id="userCount" class="meta" style="color:var(--text-faint)"></span><span class="grow"></span><button id="addUser" class="btn-primary btn-sm">Add User</button></div></div>
+        <div class="pane-body">
+          <table><thead><tr><th>User</th><th>Permissions</th><th>Auth</th><th>Folder</th><th></th></tr></thead><tbody id="userRows"></tbody></table>
+          <div id="usersEmpty" class="empty" style="padding:18px 14px">No users yet. Add one, or use Quick Start for an instant full-access share.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <div class="left"><div id="debugToggle" class="toggle"><span class="switch"></span><span>Debug log</span></div></div>
+    <span class="grow"></span>
+    <span id="verText" class="meta" style="color:var(--text-faint)"></span>
+    <button id="updateCheck" class="btn-ghost btn-sm" style="margin-left:12px">Check for updates</button>
+  </div>
+</div>
+
+<!-- user modal -->
+<div id="userModal" class="modal"><div class="card">
+  <h3 id="umTitle">Add User</h3>
+  <div class="row">
+    <div class="f"><label class="field-label">Username</label><input id="umUser"><div id="umUserErr" class="errline"></div></div>
+  </div>
+  <div class="row"><div class="f" style="flex:2 1 auto"><label class="field-label">Folder this user can reach</label>
+    <div style="display:flex;gap:8px"><input id="umHome" class="mono" style="flex:1 1 auto" placeholder="C:\path\to\folder">
+    <button id="umPick" class="btn-ghost btn-sm" style="margin:0;white-space:nowrap">Browse...</button>
+    <button id="umMake" class="btn-ghost btn-sm" style="margin:0;white-space:nowrap" title="Create a folder named <user>-share next to the app">Make folder</button></div>
+    <div class="meta" style="color:var(--text-dim);margin-top:5px">The user is locked to this folder. A path that doesn't exist yet will be created on save.</div></div></div>
+  <div class="row"><div class="f"><label class="field-label">Sign-in method</label>
+    <div class="seg" id="umAuth"><button data-v="password" class="on">Password</button><button data-v="key">Public key</button><button data-v="both">Both</button></div></div></div>
+  <div id="umPwWrap" class="row"><div class="f"><label class="field-label">Password</label>
+    <div style="display:flex;gap:8px">
+      <div class="pw-wrap">
+        <input id="umPw" type="password" class="mono" placeholder="Generate or type a password">
+        <button type="button" class="eye-btn" id="umPwEye" title="Show/hide password">
+          <svg id="eyeIconShow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg id="eyeIconHide" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+      </div>
+      <button id="umGen" class="btn-ghost btn-sm" style="margin:0;white-space:nowrap">Generate</button>
+    </div>
+    <div class="meta" id="umPwHint" style="color:var(--text-dim);margin-top:5px">Stored as a one-way hash. It is not shown again after you save.</div></div></div>
+  <div id="umKeyWrap" class="row" style="display:none"><div class="f"><label class="field-label">Authorized public keys (one per line)</label>
+    <textarea id="umKeys" class="mono" rows="4" placeholder="ssh-ed25519 AAAA... name@host"></textarea>
+    <div style="margin-top:6px"><button id="umKeygen" class="btn-ghost btn-sm">Generate a key pair for this user</button></div></div></div>
+  <div class="row"><div class="f"><label class="field-label">Permissions</label>
+    <div class="perm-grid">
+      <label class="perm-chk"><input type="checkbox" id="pList"> List</label>
+      <label class="perm-chk"><input type="checkbox" id="pUpload"> Upload</label>
+      <label class="perm-chk"><input type="checkbox" id="pDownload"> Download</label>
+      <label class="perm-chk"><input type="checkbox" id="pDelete"> Delete files</label>
+      <label class="perm-chk"><input type="checkbox" id="pRenameFile"> Rename files</label>
+      <label class="perm-chk"><input type="checkbox" id="pMkdir"> Create folder</label>
+      <label class="perm-chk"><input type="checkbox" id="pRenameDir"> Rename folders</label>
+      <label class="perm-chk"><input type="checkbox" id="pDeleteDir"> Delete folder</label>
+    </div>
+    <div id="umPermErr" class="errline"></div>
+  </div></div>
+  <div class="modal-actions"><button id="umCancel" class="btn-ghost">Cancel</button><button id="umSave" class="btn-primary">Save user</button></div>
+</div></div>
+
+<!-- keygen modal -->
+<div id="keygenModal" class="modal"><div class="card">
+  <h3>Generate key pair</h3>
+  <div class="row"><div class="f"><label class="field-label">Type</label><select id="kgType"></select></div>
+    <div class="f" style="flex:2 1 auto"><label class="field-label">Save private key as</label>
+      <div style="display:flex;gap:8px"><input id="kgPath" class="mono" style="flex:1 1 auto" placeholder="C:\Users\you\.ssh\id_ed25519"><button id="kgBrowse" class="btn-ghost btn-sm" style="margin:0;white-space:nowrap">Browse...</button></div>
+      <div class="meta" style="color:var(--text-dim);margin-top:5px">The public key is saved next to it as the same name + <b>.pub</b>, and added to this user.</div></div></div>
+  <div class="row"><div class="f"><label class="field-label">Passphrase (optional)</label><input id="kgPass" type="password"></div></div>
+  <div id="kgResult" style="display:none"><div id="kgSaved" class="meta" style="color:var(--green);margin-bottom:6px"></div>
+    <label class="field-label">Public key (added to the user)</label><pre class="pub" id="kgPub"></pre>
+    <div style="margin:8px 0"><button id="kgCopy" class="btn-ghost btn-sm">Copy public key</button></div></div>
+  <div class="modal-actions"><button id="kgClose" class="btn-ghost">Close</button><button id="kgGo" class="btn-primary">Generate</button></div>
+</div></div>
+
+<!-- confirm modal (generic) -->
+<div id="confirmModal" class="modal"><div class="card" style="width:480px">
+  <h3 id="cfTitle">Confirm</h3>
+  <p id="cfText" style="font-size:12.5px;line-height:1.5;color:var(--text);white-space:pre-line;margin:0 0 16px"></p>
+  <div id="cfFolderRow" style="display:none;margin-bottom:14px">
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px" id="cfFolderLabel"></div>
+    <div style="display:flex;gap:8px">
+      <button id="cfKeep" class="btn-ghost" style="flex:1">Keep folder &amp; files</button>
+      <button id="cfDelete" class="btn-danger" style="flex:1">Delete folder &amp; files</button>
+    </div>
+  </div>
+  <div id="cfSimpleRow" class="modal-actions" style="display:none">
+    <button id="cfCancel" class="btn-ghost">Cancel</button>
+    <button id="cfOk" class="btn-danger">Confirm</button>
+  </div>
+</div></div>
+
+<div id="toast"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+let API=null, meta=null, running=false, isQuick=false;
+let users=[], editingOriginal=null, authMode="password";
+let cur=null, curAt=0, pwShown=false, lastPubKey="";
+let pollTimer=null, tickTimer=null;
+let umPwVisible=false;
+
+function toast(m,e){const t=$("toast");t.textContent=m;t.className=(e?"err ":"")+"show";setTimeout(()=>t.className=t.className.replace("show","").trim(),3400);}
+function copyText(s){if(navigator.clipboard)navigator.clipboard.writeText(s);}
+
+function dur(s){s=Math.max(0,s|0);const m=Math.floor(s/60),h=Math.floor(m/60);
+  if(h)return h+"h "+(m%60)+"m";if(m)return m+"m "+(s%60)+"s";return s+"s";}
+
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+// permission keys in display order
+const PERM_KEYS=["list","download","upload","delete","rename_file","rename_dir","mkdir","delete_dir"];
+const PERM_IDS={list:"pList",download:"pDownload",upload:"pUpload",delete:"pDelete",
+  rename_file:"pRenameFile",rename_dir:"pRenameDir",mkdir:"pMkdir",delete_dir:"pDeleteDir"};
+
+function permSummary(p){
+  if(!p)return "—";
+  const on=PERM_KEYS.filter(k=>p[k]);
+  if(!on.length)return "none";
+  if(on.length===PERM_KEYS.length)return "full access";
+  const labels={list:"list",download:"dl",upload:"ul",delete:"del files",
+    rename_file:"ren files",rename_dir:"ren dirs",mkdir:"mkdir",delete_dir:"del dirs"};
+  return on.map(k=>labels[k]).join(", ");
+}
+
+const AUTHLBL={password:"Password",key:"Key",both:"Password + key"};
+
+window.addEventListener("pywebviewready",init);
+window.appEvent=function(ev,p){
+  if(ev==="status"){applyStatus(p);}
+  else if(ev==="transfer"){onTransfer(p);}
+  else if(ev==="activity"){onActivity(p);}
+};
+
+async function init(){
+  API=window.pywebview.api;
+  meta=await API.get_meta();
+  $("verText").textContent="v"+meta.version;
+  $("port").value=(meta.settings&&meta.settings.port)||meta.default_port||2222;
+  const kg=$("kgType"); meta.key_types.forEach(t=>{const o=document.createElement("option");o.value=t;o.textContent=t;kg.appendChild(o);});
+  users=meta.users||[]; renderUsers();
+
+  $("startBtn").onclick=onStart;
+  $("stopBtn").onclick=onStop;
+  $("quickBtn").onclick=onQuick;
+  $("checkBtn").onclick=onCheckPort;
+  $("pubBtn").onclick=onPublicIp;
+  $("copyCard").onclick=copyCard;
+  $("openFolderBtn").onclick=()=>cur&&cur.quick_folder&&API.reveal_folder(cur.quick_folder);
+  $("pwReveal").onclick=onReveal;
+  $("pwCopy").onclick=onCopyPw;
+  document.querySelectorAll(".cp[data-c]").forEach(b=>b.onclick=()=>{const v=$(b.dataset.c).textContent;if(v&&v!=="—"){copyText(v);toast("Copied");}});
+
+  $("addUser").onclick=()=>openUser(null);
+  $("umCancel").onclick=()=>$("userModal").classList.remove("show");
+  $("umPick").onclick=onPickFolder;
+  $("umMake").onclick=onMakeFolder;
+  $("umGen").onclick=async()=>{const r=await API.new_password();$("umPw").value=r.password;};
+  $("umPwEye").onclick=togglePwVisible;
+  $("umUser").addEventListener("blur",onValidateUser);
+  document.querySelectorAll("#umAuth button").forEach(b=>b.onclick=()=>setAuth(b.dataset.v));
+  $("umSave").onclick=onSaveUser;
+  $("umKeygen").onclick=openKeygen;
+
+  // delete permission auto-enables overwrite; wire it up
+  $("pDelete").addEventListener("change",()=>{});
+
+  $("kgBrowse").onclick=async()=>{const sug=$("kgType").value.startsWith("Ed25519")?"id_ed25519":"id_rsa";const p=await API.browse_save_key(sug);if(p)$("kgPath").value=p;};
+  $("kgClose").onclick=()=>$("keygenModal").classList.remove("show");
+  $("kgGo").onclick=onKeygen;
+  $("kgCopy").onclick=()=>{copyText($("kgPub").textContent);toast("Public key copied");};
+
+  $("debugToggle").onclick=async()=>{const on=!$("debugToggle").classList.contains("on");const r=await API.set_debug(on);$("debugToggle").classList.toggle("on",r.enabled);toast(r.enabled?"Debug log on":"Debug log off");};
+  $("updateCheck").onclick=()=>doUpdate(true);
+  $("ubDismiss").onclick=()=>$("updateBanner").classList.remove("show");
+
+  applyStatus(await API.get_status());
+  tickTimer=setInterval(tick,1000);
+  doUpdate(false);
+}
+
+/* ---------- pw eye toggle ---------- */
+function togglePwVisible(){
+  umPwVisible=!umPwVisible;
+  $("umPw").type=umPwVisible?"text":"password";
+  $("eyeIconShow").style.display=umPwVisible?"none":"block";
+  $("eyeIconHide").style.display=umPwVisible?"block":"none";
+}
+
+/* ---------- start / stop / quick ---------- */
+async function onStart(){
+  setBusy(true);
+  const r=await API.start_server($("port").value.trim());
+  setBusy(false);
+  if(!r.ok){toast(r.error||"Could not start.",true);return;}
+  toast("Server started.");
+}
+
+async function onStop(){
+  if(!running)return;
+  const wasQuick=isQuick;
+  if(wasQuick){
+    // Quick Start stop: confirm then offer keep/delete folder
+    showConfirmStop("Stop Quick Start server?",
+      "This will disconnect all clients and stop the server.",
+      cur?cur.quick_folder:"",
+      async(deleteFolder)=>{
+        setBusy(true);
+        const r=await API.stop_server(deleteFolder);
+        setBusy(false);
+        pwShown=false;
+        if(r.status)applyStatus(r.status);
+        toast(deleteFolder?"Quick Start stopped and share folder deleted.":"Quick Start stopped.");
+      });
+  } else {
+    // Regular server stop: confirm only
+    showSimpleConfirm("Stop server?",
+      "This will disconnect all clients and stop the server.",
+      async()=>{
+        setBusy(true);
+        const r=await API.stop_server(false);
+        setBusy(false);
+        pwShown=false;
+        if(r.status)applyStatus(r.status);
+        toast("Server stopped.");
+      });
+  }
+}
+
+async function onQuick(){
+  setBusy(true);
+  const r=await API.quick_start();
+  setBusy(false);
+  if(!r.ok){toast(r.error||"Could not start Quick Start.",true);return;}
+  toast("Quick Start running. Password is in the card.");
+}
+
+async function onCheckPort(){
+  const p=parseInt($("port").value,10);
+  if(!p){toast("Enter a port number.",true);return;}
+  const r=await API.check_port(p);
+  toast(r.free?("Port "+p+" is free."):("Port "+p+" is already in use."), !r.free);
+}
+
+async function onPublicIp(){
+  $("pubBtn").disabled=true;$("vPub").textContent="checking...";
+  const r=await API.get_public_ip();
+  $("pubBtn").disabled=false;
+  if(r.ok){$("vPub").textContent=r.ip;$("pubBtn").textContent="Copy";$("pubBtn").onclick=()=>{copyText(r.ip);toast("Copied");};}
+  else{$("vPub").textContent="unavailable";toast("Couldn't reach the public IP service.",true);}
+}
+
+/* ---------- confirm helpers ---------- */
+function showSimpleConfirm(title, text, onOk){
+  $("cfTitle").textContent=title;
+  $("cfText").textContent=text;
+  $("cfFolderRow").style.display="none";
+  $("cfSimpleRow").style.display="flex";
+  $("cfOk").textContent="Confirm";
+  $("confirmModal").classList.add("show");
+  $("cfCancel").onclick=()=>$("confirmModal").classList.remove("show");
+  $("cfOk").onclick=()=>{$("confirmModal").classList.remove("show");onOk();};
+}
+
+function showConfirmStop(title, text, folderPath, onDecide){
+  $("cfTitle").textContent=title;
+  $("cfText").textContent=text;
+  $("cfFolderRow").style.display="block";
+  $("cfSimpleRow").style.display="none";
+  $("cfFolderLabel").textContent=folderPath?"Share folder: "+folderPath:"";
+  $("confirmModal").classList.add("show");
+  $("cfKeep").onclick=()=>{$("confirmModal").classList.remove("show");onDecide(false);};
+  $("cfDelete").onclick=()=>{$("confirmModal").classList.remove("show");onDecide(true);};
+}
+
+/* ---------- status ---------- */
+function setBusy(b){["startBtn","stopBtn","quickBtn","checkBtn"].forEach(id=>$(id).disabled=b);if(!b)reflectButtons();}
+function reflectButtons(){
+  $("startBtn").disabled=running; $("quickBtn").disabled=running;
+  $("stopBtn").disabled=!running; $("port").disabled=running;
+}
+
+function clearConnDetails(){
+  $("vLan").textContent="—";
+  $("vPort").textContent="—";
+  $("vFp").textContent="—";
+  $("vPub").textContent="—";
+  $("pubBtn").textContent="Get";
+  $("pubBtn").onclick=onPublicIp;
+  $("rowUser").style.display="none";
+  $("rowPw").style.display="none";
+  $("openFolderBtn").style.display="none";
+  $("copyCard").disabled=true;
+  const note=$("accessNote");
+  note.textContent="Stopped"; note.className="badge gray";
+}
+
+function applyStatus(s){
+  if(!s)return;
+  cur=s; curAt=Date.now();
+  running=!!s.running; isQuick=!!s.quick;
+  reflectButtons();
+  const dot=$("dot");
+  dot.className="dot"+(running?" live":"");
+  $("statusText").textContent=running?(isQuick?"Quick Start running":"Running"):"Stopped";
+
+  if(!running){
+    clearConnDetails();
+  } else {
+    $("vLan").textContent=s.lan||"—";
+    $("vPort").textContent=s.port||"—";
+    $("vFp").textContent=s.fingerprint||"—";
+    $("copyCard").disabled=false;
+    const note=$("accessNote");
+    if(isQuick){
+      $("vUser").textContent="quickstart";
+      $("rowUser").style.display="flex";
+      $("rowPw").style.display="flex";
+      $("openFolderBtn").style.display=s.quick_folder?"inline-block":"none";
+      note.textContent="Quick Start"; note.className="badge amber";
+      if(!pwShown)$("vPw").textContent="••••••••";
+    } else {
+      $("rowUser").style.display="none";
+      $("rowPw").style.display="none";
+      $("openFolderBtn").style.display="none";
+      note.textContent="Per-user sign-in"; note.className="badge gray";
+    }
+  }
+  renderLive();
+}
+
+function tick(){ if(cur)renderLive(); }
+
+function renderLive(){
+  if(!cur)return;
+  const elapsed=(Date.now()-curAt)/1000;
+  const conns=cur.connections||[];
+  $("connCount").textContent=conns.length;
+  const sl=$("sessList");
+  if(!running||!conns.length){sl.innerHTML='<div class="empty">'+(running?"No clients connected.":"Server is stopped.")+'</div>';}
+  else{sl.innerHTML=conns.map(c=>`<div class="sess"><span class="nm"><b>${esc(c.user)}</b> <span class="sm">@ ${esc(c.ip)}</span></span>`+
+      (c.active?`<span class="pill">${c.active} transfer${c.active>1?"s":""}</span>`:"")+
+      `<span class="sm">${dur(c.since+elapsed)}</span></div>`).join("");}
+  const locks=cur.locked||[];
+  $("unlockAll").style.display=locks.length?"inline-block":"none";
+  $("unlockAll").onclick=async()=>{const r=await API.unlock_all();if(r.status)applyStatus(r.status);toast("Cleared all lockouts.");};
+  const ll=$("lockList");
+  if(!locks.length){ll.innerHTML='<div class="empty">No lockouts.</div>';}
+  else{ll.innerHTML=locks.map(l=>`<div class="sess"><span class="nm mono">${esc(l.ip)}</span><span class="sm">clears in ${dur(l.remaining-elapsed)}</span><button class="cp" data-ip="${esc(l.ip)}">Unlock</button></div>`).join("");
+    ll.querySelectorAll("button[data-ip]").forEach(b=>b.onclick=async()=>{const r=await API.unlock_ip(b.dataset.ip);if(r.status)applyStatus(r.status);toast("Unlocked "+b.dataset.ip);});}
+}
+
+function onTransfer(p){
+  const fill=$("xFill"),meta=$("xMeta");
+  if(p.active){$("xName").textContent=(p.dir==="upload"?"↑ ":"↓ ")+p.name;fill.style.width=(p.pct==null?40:p.pct)+"%";
+    meta.textContent=p.human+(p.pct!=null?"  "+p.pct+"%":"");}
+  else{$("xName").textContent="Idle";fill.style.width="0%";meta.textContent="";}
+}
+
+function onActivity(p){
+  const f=$("actFeed");const e=f.querySelector(".empty");if(e)e.remove();
+  const d=document.createElement("div");d.className="row";
+  const t=new Date().toTimeString().slice(0,8);
+  d.innerHTML=`<b>${esc(p.verb)}</b> ${esc(p.name)}`+(p.human?` <span style="color:var(--text-faint)">(${esc(p.human)})</span>`:"")+` <span style="color:var(--text-faint);float:right">${t}</span>`;
+  f.insertBefore(d,f.firstChild);
+  while(f.children.length>40)f.removeChild(f.lastChild);
+}
+
+/* ---------- connection card ---------- */
+async function onReveal(){
+  const r=await API.reveal_quick_password();
+  if(r.ok){$("vPw").textContent=r.password;pwShown=true;$("pwReveal").textContent="Hide";$("pwReveal").onclick=()=>{$("vPw").textContent="••••••••";pwShown=false;$("pwReveal").textContent="Reveal";$("pwReveal").onclick=onReveal;};}
+  else toast("Password is only available while Quick Start is running.",true);
+}
+async function onCopyPw(){
+  const r=await API.reveal_quick_password();
+  if(r.ok){copyText(r.password);toast("Password copied");}
+  else toast("Start Quick Start first.",true);
+}
+async function copyCard(){
+  if(!cur||!running)return;
+  const L=["Simple SFTP Server","Address (LAN): "+(cur.lan||""),"Port: "+(cur.port||"")];
+  if(isQuick){let pw="";const r=await API.reveal_quick_password();if(r.ok)pw=r.password;
+    L.push("Username: quickstart");L.push("Password: "+pw);L.push("Access: full (read, write, delete)");}
+  else L.push("Sign in with your assigned username and password or key.");
+  L.push("Host key: "+(cur.fingerprint||""));
+  copyText(L.join("\n"));toast("Connection card copied");
+}
+
+/* ---------- users ---------- */
+function renderUsers(){
+  const tb=$("userRows");tb.innerHTML="";
+  $("userCount").textContent=users.length?("  ("+users.length+")"):""
+  $("usersEmpty").style.display=users.length?"none":"block";
+  users.forEach(u=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td><b>${esc(u.username)}</b></td>`+
+      `<td><span class="tag" title="${esc(permSummary(u.permissions))}">${esc(permSummary(u.permissions))}</span></td>`+
+      `<td><span class="tag">${AUTHLBL[u.auth]||u.auth}${u.auth!=="password"?" ("+u.key_count+")":""}</span></td>`+
+      `<td class="folder" title="${esc(u.home)}">${esc(u.home)}</td>`+
+      `<td class="act"></td>`;
+    const act=tr.lastChild;
+    const eb=document.createElement("button");eb.className="cp";eb.textContent="Edit";eb.onclick=()=>openUser(u);
+    const db=document.createElement("button");db.className="cp";db.textContent="Delete";db.style.marginLeft="6px";db.onclick=()=>confirmDeleteUser(u);
+    act.append(eb,db);
+    tb.appendChild(tr);
+  });
+}
+
+function setAuth(v){
+  authMode=v;
+  document.querySelectorAll("#umAuth button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
+  $("umPwWrap").style.display=(v==="password"||v==="both")?"flex":"none";
+  $("umKeyWrap").style.display=(v==="key"||v==="both")?"flex":"none";
+}
+
+function getPermissions(){
+  const p={};
+  PERM_KEYS.forEach(k=>{ p[k]=document.getElementById(PERM_IDS[k]).checked; });
+  return p;
+}
+
+function setPermissions(p){
+  PERM_KEYS.forEach(k=>{
+    const el=document.getElementById(PERM_IDS[k]);
+    if(el) el.checked=p?!!p[k]:false;
+  });
+}
+
+function openUser(u){
+  editingOriginal=u?u.username:null;
+  $("umTitle").textContent=u?"Edit user":"Add User";
+  $("umUser").value=u?u.username:"";
+  $("umUserErr").textContent="";
+  $("umPermErr").textContent="";
+  $("umHome").value=u?u.home:"";
+  $("umPw").value="";
+  $("umPw").type="password";
+  umPwVisible=false;
+  $("eyeIconShow").style.display="block";
+  $("eyeIconHide").style.display="none";
+  $("umPw").placeholder=u&&u.has_password?"(unchanged)":"Generate or type a password";
+  $("umKeys").value="";
+  $("umPwHint").textContent=u?"Leave blank to keep the current password.":"Stored as a one-way hash. Not shown again after saving.";
+  // permissions: default to list-only for new users
+  if(u&&u.permissions){
+    setPermissions(u.permissions);
+  } else {
+    setPermissions({list:true,download:false,upload:false,delete:false,rename_file:false,rename_dir:false,mkdir:false,delete_dir:false});
+  }
+  setAuth(u?u.auth:"password");
+  if(u&&u.auth!=="password")$("umKeys").placeholder=u.key_count?u.key_count+" key(s) on file. Paste keys here to replace them.":"ssh-ed25519 AAAA... name@host";
+  $("userModal").classList.add("show");
+  setTimeout(()=>$("umUser").focus(),30);
+}
+
+async function onValidateUser(){
+  const v=$("umUser").value.trim();if(!v){$("umUserErr").textContent="";return;}
+  const r=await API.validate_username(v);$("umUserErr").textContent=r.ok?"":r.error;
+}
+async function onPickFolder(){const r=await API.pick_folder();if(r.ok&&r.path)$("umHome").value=r.path;else if(r.error)toast(r.error,true);}
+async function onMakeFolder(){const u=$("umUser").value.trim();if(!u){toast("Enter a username first.",true);return;}
+  const r=await API.make_share_folder(u);if(r.ok){$("umHome").value=r.path;toast("Folder ready.");}else toast(r.error||"Couldn't make folder.",true);}
+
+async function onSaveUser(){
+  const perms=getPermissions();
+  if(!Object.values(perms).some(Boolean)){$("umPermErr").textContent="Grant the user at least one permission.";return;}
+  $("umPermErr").textContent="";
+  const keys=$("umKeys").value.split("\n").map(s=>s.trim()).filter(Boolean);
+  const p={username:$("umUser").value.trim(),permissions:perms,
+    home:$("umHome").value.trim(),auth:authMode,password:$("umPw").value,authorized_keys:keys};
+  $("umSave").disabled=true;
+  const r=await API.save_user(p,editingOriginal);
+  $("umSave").disabled=false;
+  if(!r.ok){toast(r.error||"Could not save.",true);return;}
+  users=r.users;renderUsers();
+  $("userModal").classList.remove("show");
+  toast("User saved.");
+}
+
+function confirmDeleteUser(u){
+  const home=u.home||"";
+  $("cfTitle").textContent="Delete user";
+  $("cfText").textContent=`Remove "${u.username}"? Their login will be deleted.`;
+  $("cfFolderRow").style.display="block";
+  $("cfSimpleRow").style.display="none";
+  $("cfFolderLabel").textContent=home?"User folder: "+home:"";
+  $("confirmModal").classList.add("show");
+  $("cfKeep").textContent="Keep folder & files";
+  $("cfDelete").textContent="Also delete folder";
+  $("cfKeep").onclick=async()=>{
+    $("confirmModal").classList.remove("show");
+    const r=await API.delete_user(u.username,false);
+    users=r.users;renderUsers();toast("User deleted.");
+  };
+  $("cfDelete").onclick=async()=>{
+    $("confirmModal").classList.remove("show");
+    const r=await API.delete_user(u.username,true);
+    users=r.users;renderUsers();toast("User and folder deleted.");
+  };
+}
+
+/* ---------- keygen ---------- */
+function openKeygen(){
+  if(!$("umUser").value.trim()){toast("Enter a username first.",true);return;}
+  $("kgResult").style.display="none";$("kgPath").value="";$("kgPass").value="";$("kgGo").disabled=false;
+  $("keygenModal").classList.add("show");
+}
+async function onKeygen(){
+  const path=$("kgPath").value.trim();
+  if(!path){toast("Choose where to save the private key.",true);return;}
+  $("kgGo").disabled=true;
+  const r=await API.generate_keypair($("kgType").value,path,$("kgPass").value,$("umUser").value.trim());
+  $("kgGo").disabled=false;
+  if(!r.ok){toast(r.error||"Key generation failed.",true);return;}
+  lastPubKey=r.public;
+  $("kgPub").textContent=r.public;
+  $("kgSaved").textContent="Saved private key to "+r.private_path+" (and .pub beside it).";
+  $("kgResult").style.display="block";
+  const cur=$("umKeys").value.trim();
+  $("umKeys").value=(cur?cur+"\n":"")+r.public;
+  toast("Key pair created and added to this user.");
+}
+
+/* ---------- updates ---------- */
+async function doUpdate(manual){
+  const r=await API.check_update();
+  if(!r.ok){if(manual)toast(r.error||"Couldn't check for updates.",true);return;}
+  if(r.update){$("ubText").innerHTML=`Version <b>${esc(r.latest)}</b> is available (you have ${esc(r.current)}).`;
+    $("ubView").onclick=()=>API.open_url(r.url);$("updateBanner").classList.add("show");}
+  else if(manual)toast("You're on the latest version (v"+r.current+").");
+}
+</script>
+</body>
+</html>
