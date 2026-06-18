@@ -1,0 +1,16 @@
+# Pinned build dependencies for Simple SFTP Server.
+# Base versions (pywebview, PySide6, qtpy, pyinstaller) match the JDE pilot's
+# green CI build (Python 3.14). SFTP stack pinned to current stable 2026-06-18.
+# Dependabot opens review-PRs for these == deps when newer releases appear.
+pywebview==6.2.1
+PySide6==6.11.1
+qtpy==2.4.3
+pyinstaller==6.21.0
+
+# SFTP transport + key handling. cryptography and bcrypt are used directly
+# (Ed25519 host/key generation and password hashing) as well as by paramiko;
+# PyNaCl is paramiko's crypto dep.
+paramiko==5.0.0
+cryptography==49.0.0
+bcrypt==5.0.0
+PyNaCl==1.6.2

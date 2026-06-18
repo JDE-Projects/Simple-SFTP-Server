@@ -38,20 +38,37 @@ Built by [JDE-Projects](https://github.com/JDE-Projects).
 - Window: pywebview on the Qt backend, UI in `simple_sftp_server-UI.html`.
 
 ## Download and run
-Grab the latest `Simple SFTP Server.exe` from the Releases page and
-double-click it. No Python or setup required. Windows only.
+Grab the latest release zip from the [Releases](../../releases) page, extract
+it, and run `Simple SFTP Server.exe` from inside the extracted folder. Keep the
+folder together; the exe needs the files next to it. No Python or setup
+required. Windows only.
 Unsigned, so SmartScreen may warn the first time: More info > Run anyway.
 On first connection a client also needs your firewall to allow the port, and
 for access from outside your network, a port-forward to this machine.
 
+## Verify this download (optional)
+This release was built on GitHub from this public source - not on a personal
+machine - and is signed with a build-provenance attestation. To confirm a
+download is genuine, install the [GitHub CLI](https://cli.github.com) and run:
+
+```
+gh attestation verify SimpleSFTPServer-vX.Y.Z.zip \
+  --repo JDE-Projects/Simple-SFTP-Server \
+  --signer-repo JDE-Projects/Build-Tools
+```
+
+A `Verification succeeded!` line means the file was built by the published
+pipeline from this repo. You can also check the file against the published
+`.sha256`.
+
 ## Build from source (optional)
 - Python 3 on PATH.
-- `pip install pywebview PySide6 paramiko` (bcrypt and cryptography come with
-  paramiko).
+- `pip install -r requirements.txt` (pinned versions: PySide6, pywebview,
+  paramiko, cryptography, bcrypt, and PyInstaller)
 - Keep `simple_sftp_server.py`, `simple_sftp_server-UI.html`, the `fonts/`
   folder, the `.ico`, `.png`, and `-splash.png` together.
 - Run from source: `python simple_sftp_server.py`
-- Build the .exe: `Build_Simple_SFTP_Server.bat` -> `dist\Simple SFTP Server.exe`
+- Build the .exe: `Build_Simple_SFTP_Server.bat` -> `dist\Simple SFTP Server\Simple SFTP Server.exe`
 
 ## Using it
 1. Quick Start for an instant share: click it, reveal the password, and send
