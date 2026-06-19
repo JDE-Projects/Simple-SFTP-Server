@@ -7,6 +7,8 @@ connections and transfers live. Secure connections only.
 
 Built by [JDE-Projects](https://github.com/JDE-Projects).
 
+If you enjoyed this project and would like to buy me a coffee, check out my [Ko-fi](https://ko-fi.com/jdeprojects).
+
 ## Highlights
 - Quick Start: one click brings a full-access share live with a fresh random
   password, shown in an on-screen connection card you can copy and send.
