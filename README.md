@@ -40,13 +40,21 @@ If you enjoyed this project and would like to buy me a coffee, check out my [Ko-
 - Window: pywebview on the Qt backend, UI in `simple_sftp_server-UI.html`.
 
 ## Download and run
-Grab the latest release zip from the [Releases](../../releases) page, extract
-it, and run `Simple SFTP Server.exe` from inside the extracted folder. Keep the
-folder together; the exe needs the files next to it. No Python or setup
-required. Windows only.
-Unsigned, so SmartScreen may warn the first time: More info > Run anyway.
-On first connection a client also needs your firewall to allow the port, and
-for access from outside your network, a port-forward to this machine.
+Two ways to get it from the [Releases](../../releases) page - pick one:
+
+- **Installer (recommended):** download `SimpleSFTPServer-vX.Y.Z-setup.exe` and
+  run it. It installs the app, adds a Start menu shortcut, and can be removed
+  later from Add or Remove Programs. Installs just for you by default (no admin
+  needed); you can choose all users during setup.
+- **Portable .zip:** download `SimpleSFTPServer-vX.Y.Z.zip`, extract it, and run
+  `Simple SFTP Server.exe` from inside the extracted folder. No install - good
+  for a locked-down PC or a USB stick. Keep the folder together; the exe needs
+  the files next to it.
+
+Either way: Windows only, no Python or setup required. Unsigned, so SmartScreen
+may warn the first time: More info > Run anyway. On first connection a client
+also needs your firewall to allow the port, and for access from outside your
+network, a port-forward to this machine.
 
 ## Verify this download (optional)
 This release was built on GitHub from this public source - not on a personal
