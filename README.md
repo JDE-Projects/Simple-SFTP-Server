@@ -114,10 +114,16 @@ pipeline from this repo. You can also check the file against the published
 - The optional debug log is off by default; when on it writes
   `Debug_Log_MMDDYYYY_HHMMSS.txt` next to the app with credentials redacted.
 
-## Updates
-Use Check for Updates to compare your version against the latest GitHub
-Release. If a newer version exists, the app shows a banner linking to the
-Releases page to download it. The check is silent if you're offline.
+## Updating
+The "Check for updates" button in the bottom-right corner compares your
+version to the latest GitHub Release and shows the result inline in the
+bottom bar. If a newer version exists, a persistent link appears so you
+can view the release. Otherwise a brief "No update" message shows and
+fades on its own. The check is silent when you are offline.
+
+To update: download the latest release from the
+[Releases](../../releases) page and replace the existing exe, or re-run
+the installer.
 
 ## A note on how this was built
 This project was built with AI assistance. The design decisions, feature

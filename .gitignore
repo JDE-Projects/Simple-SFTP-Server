@@ -25,3 +25,6 @@ Launch_*.bat
 
 # Optional debug logs (written next to the exe when toggled on)
 Debug_Log_*.txt
+
+# User preferences (theme, written next to the exe)
+*.pref
