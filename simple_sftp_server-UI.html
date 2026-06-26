@@ -16,6 +16,21 @@
     --bg:#0a0e14;--bg-2:#0e131c;--panel:#121823;--panel-2:#161d2a;--border:#20293a;--border-2:#2b3650;
     --text:#dfe7f2;--text-dim:#8a98b0;--text-faint:#5a6678;--accent:#4dd6c1;--accent-2:#2bb6a3;--glow:rgba(77,214,193,.35);
     --amber:#f0b860;--red:#ff6b7a;--green:#5ce39b;--blue:#6db3ff;--radius:14px;--radius-sm:9px;
+    --btn-text:#042b27;
+  }
+  body.light {
+    --bg:#eef3f4; --bg-2:#e4ebed; --panel:#ffffff; --panel-2:#f5f9fa;
+    --border:#d3dee1; --border-2:#bcccd0;
+    --text:#16212c; --text-dim:#4f606d; --text-faint:#8593a0;
+    --accent:#178577; --accent-2:#0f6b5f; --glow:rgba(23,133,119,0.20);
+    --amber:#e0900a; --red:#cf3b50; --green:#1c9560; --blue:#2b6fd0; --purple:#6f48cf;
+    --btn-text:#ffffff;
+  }
+  body.light {
+    background:
+      radial-gradient(900px 500px at 12% -10%, rgba(23,133,119,0.08), transparent 60%),
+      radial-gradient(800px 500px at 100% 0%, rgba(43,111,208,0.06), transparent 55%),
+      var(--bg);
   }
   *{box-sizing:border-box;}
   html,body{height:100%;margin:0;}
@@ -40,7 +55,7 @@
     background-position:calc(100% - 14px) center,calc(100% - 9px) center;background-size:5px 5px,5px 5px;background-repeat:no-repeat;}
   button{font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;border-radius:var(--radius-sm);
     padding:7px 13px;border:1px solid transparent;transition:transform .15s,border-color .15s,box-shadow .15s,background .15s;}
-  .btn-primary{color:#042b27;background:linear-gradient(180deg,var(--accent),var(--accent-2));box-shadow:0 2px 12px var(--glow);}
+  .btn-primary{color:var(--btn-text);background:linear-gradient(180deg,var(--accent),var(--accent-2));box-shadow:0 2px 12px var(--glow);}
   .btn-primary:hover:not(:disabled){transform:translateY(-1px);}
   .btn-danger{color:#2b0d10;background:linear-gradient(180deg,#ff8a96,var(--red));}
   .btn-danger:hover:not(:disabled){transform:translateY(-1px);}
@@ -53,7 +68,8 @@
   .conn{padding:11px 14px;display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
   .conn .f{display:flex;flex-direction:column;} .conn .f.port input{width:78px;}
   .vsep{width:1px;height:30px;background:var(--border);margin:0 2px;}
-  .conn-status{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text-dim);padding-bottom:8px;margin-left:auto;}
+  .conn-status{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text-dim);padding-bottom:8px;}
+  .conn-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;margin-left:auto;}
   .dot{width:9px;height:9px;border-radius:50%;background:var(--text-faint);}
   .dot.live{background:var(--green);box-shadow:0 0 8px rgba(92,227,155,.6);} .dot.warn{background:var(--amber);} .dot.err{background:var(--red);}
 
@@ -66,7 +82,7 @@
   .pane-body{flex:1 1 auto;overflow:auto;}
   .pane-body.pad{padding:6px 4px;}
   .pane-foot{padding:9px 12px;border-top:1px solid var(--border);display:flex;gap:8px;}
-  .badge{font-size:10px;font-weight:600;color:#042b27;background:linear-gradient(180deg,var(--accent),var(--accent-2));
+  .badge{font-size:10px;font-weight:600;color:var(--btn-text);background:linear-gradient(180deg,var(--accent),var(--accent-2));
     padding:2px 8px;border-radius:20px;}
   .badge.gray{color:var(--text-dim);background:var(--panel-2);border:1px solid var(--border-2);}
   .badge.amber{color:#3d2800;background:linear-gradient(180deg,#f5c842,var(--amber));}
@@ -114,17 +130,16 @@
   tbody td.act{text-align:right;}
   .tag{font-size:10px;color:var(--text-dim);background:var(--panel-2);border:1px solid var(--border-2);padding:2px 7px;border-radius:20px;}
 
-  /* status bar */
-  .statusbar{display:flex;align-items:center;font-size:11px;color:var(--text-dim);padding:0 4px;}
-  .left{display:flex;align-items:center;gap:14px;}
+  /* bottom bar */
+  .statusbar{display:flex;align-items:center;font-size:11px;color:var(--text-dim);padding:8px 14px;
+    background:linear-gradient(180deg,var(--panel),var(--bg-2));border:1px solid var(--border);border-radius:var(--radius);}
+  .bar-left{display:flex;align-items:center;gap:14px;flex:none;}
+  .bar-center{flex:1;display:flex;align-items:center;justify-content:center;}
+  .bar-right{display:flex;align-items:center;gap:12px;flex:none;}
   .toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer;}
   .switch{width:32px;height:17px;border-radius:9px;background:var(--panel-2);border:1px solid var(--border-2);position:relative;}
   .switch::after{content:"";position:absolute;top:1px;left:1px;width:13px;height:13px;border-radius:50%;background:var(--text-faint);transition:left .15s,background .15s;}
-  .toggle.on .switch{background:var(--accent-2);border-color:var(--accent);} .toggle.on .switch::after{left:16px;background:#042b27;}
-  #updateBanner{display:none;align-items:center;gap:10px;background:rgba(77,214,193,.12);border:1px solid var(--accent-2);
-    border-radius:var(--radius-sm);padding:6px 12px;font-size:12px;}
-  #updateBanner.show{display:flex;}
-
+  .toggle.on .switch{background:var(--accent-2);border-color:var(--accent);} .toggle.on .switch::after{left:16px;background:var(--btn-text);}
   /* modals */
   .modal{position:fixed;inset:0;background:rgba(6,9,14,.78);display:none;align-items:center;justify-content:center;z-index:60;}
   .modal.show{display:flex;}
@@ -139,7 +154,7 @@
   .errline{font-size:11px;color:var(--red);margin-top:4px;min-height:14px;}
   .seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--border-2);border-radius:var(--radius-sm);padding:3px;gap:2px;}
   .seg button{padding:5px 12px;font-weight:500;background:transparent;border:none;color:var(--text-dim);border-radius:6px;}
-  .seg button.on{background:linear-gradient(180deg,var(--accent),var(--accent-2));color:#042b27;}
+  .seg button.on{background:linear-gradient(180deg,var(--accent),var(--accent-2));color:var(--btn-text);}
   pre.pub{background:var(--panel-2);border:1px solid var(--border);border-radius:7px;padding:10px;font-family:"JetBrains Mono",monospace;
     font-size:11px;white-space:pre-wrap;word-break:break-all;color:var(--text-dim);max-height:120px;overflow:auto;-webkit-user-select:text;user-select:text;}
 
@@ -152,15 +167,22 @@
   #toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--panel-2);border:1px solid var(--border-2);
     color:var(--text);padding:10px 16px;border-radius:9px;font-size:12px;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;
     box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:90;max-width:70%;} #toast.show{opacity:1;transform:translateX(-50%) translateY(0);} #toast.err{border-color:var(--red);}
+  .theme-btn{background:transparent;border:1px solid var(--border-2);border-radius:var(--radius-sm);width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-dim);transition:.15s;flex:0 0 auto;}
+  .theme-btn:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px);}
+  .theme-btn svg{width:18px;height:18px;}
+  .icon-moon{display:none;}
+  body.light .icon-sun{display:none;}
+  body.light .icon-moon{display:block;}
+
+  #updateNotice{font-size:11.5px;color:var(--text-dim);transition:opacity 0.5s ease;}
+  #updateNotice a{color:var(--accent);text-decoration:none;font-weight:500;}
+  #updateNotice a:hover{text-decoration:underline;}
+
   ::-webkit-scrollbar{width:11px;height:11px;} ::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:6px;border:2px solid var(--bg);}
 </style>
 </head>
 <body>
 <div class="app">
-  <div id="updateBanner"><span id="ubText"></span><span class="grow"></span>
-    <button id="ubView" class="btn-ghost btn-sm">View release</button>
-    <button id="ubDismiss" class="btn-ghost btn-sm">Dismiss</button></div>
-
   <!-- control bar -->
   <div class="panel conn">
     <div class="f port"><label class="field-label">Port</label><input id="port" class="mono" value="2222"></div>
@@ -169,7 +191,18 @@
     <button id="stopBtn" class="btn-danger" disabled>Stop</button>
     <span class="vsep"></span>
     <button id="quickBtn" class="btn-ghost" title="One click: full-access share with a fresh random password">Quick Start</button>
-    <div class="conn-status"><span id="dot" class="dot"></span><span id="statusText">Stopped</span></div>
+    <div class="conn-right">
+      <button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/>
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+        </svg>
+      </button>
+      <div class="conn-status"><span id="dot" class="dot"></span><span id="statusText">Stopped</span></div>
+    </div>
   </div>
 
   <div class="main">
@@ -217,10 +250,12 @@
   </div>
 
   <div class="statusbar">
-    <div class="left"><div id="debugToggle" class="toggle"><span class="switch"></span><span>Debug log</span></div></div>
-    <span class="grow"></span>
-    <span id="verText" class="meta" style="color:var(--text-faint)"></span>
-    <button id="updateCheck" class="btn-ghost btn-sm" style="margin-left:12px">Check for updates</button>
+    <div class="bar-left"><div id="debugToggle" class="toggle"><span class="switch"></span><span>Debug log</span></div></div>
+    <div class="bar-center"><span id="updateNotice"></span></div>
+    <div class="bar-right">
+      <span id="verText" class="meta" style="color:var(--text-faint)"></span>
+      <button id="updateCheck" class="btn-ghost btn-sm">Check for updates</button>
+    </div>
   </div>
 </div>
 
@@ -343,6 +378,7 @@ window.appEvent=function(ev,p){
 
 async function init(){
   API=window.pywebview.api;
+  await initTheme();
   meta=await API.get_meta();
   $("verText").textContent="v"+meta.version;
   $("port").value=(meta.settings&&meta.settings.port)||meta.default_port||2222;
@@ -381,7 +417,6 @@ async function init(){
 
   $("debugToggle").onclick=async()=>{const on=!$("debugToggle").classList.contains("on");const r=await API.set_debug(on);$("debugToggle").classList.toggle("on",r.enabled);toast(r.enabled?"Debug log on":"Debug log off");};
   $("updateCheck").onclick=()=>doUpdate(true);
-  $("ubDismiss").onclick=()=>$("updateBanner").classList.remove("show");
 
   applyStatus(await API.get_status());
   tickTimer=setInterval(tick,1000);
@@ -731,13 +766,31 @@ async function onKeygen(){
   toast("Key pair created and added to this user.");
 }
 
+/* ---------- theme ---------- */
+let currentTheme="dark";
+function applyTheme(theme){currentTheme=theme;document.body.classList.toggle("light",theme==="light");}
+async function toggleTheme(){const next=currentTheme==="light"?"dark":"light";applyTheme(next);if(API)await API.save_theme(next);}
+async function initTheme(){if(!API)return;try{const t=await API.get_theme();applyTheme(t||"dark");}catch(e){}}
+
 /* ---------- updates ---------- */
 async function doUpdate(manual){
+  const notice=$("updateNotice");
   const r=await API.check_update();
-  if(!r.ok){if(manual)toast(r.error||"Couldn't check for updates.",true);return;}
-  if(r.update){$("ubText").innerHTML=`Version <b>${esc(r.latest)}</b> is available (you have ${esc(r.current)}).`;
-    $("ubView").onclick=()=>API.open_url(r.url);$("updateBanner").classList.add("show");}
-  else if(manual)toast("You're on the latest version (v"+r.current+").");
+  if(!r.ok){
+    if(manual){notice.style.opacity='1';notice.textContent="Couldn’t reach GitHub";fadeNotice();}
+    return;
+  }
+  if(r.update){
+    notice.style.opacity='1';
+    notice.innerHTML='Update available: <a href="https://github.com/JDE-Projects/Simple-SFTP-Server/blob/main/README.md#updating" target="_blank" rel="noopener">v'+esc(r.latest)+'</a>';
+  } else if(manual){
+    notice.style.opacity='1';notice.textContent="No update";fadeNotice();
+  }
+}
+
+function fadeNotice(){
+  const notice=$("updateNotice");
+  setTimeout(()=>{notice.style.opacity='0';setTimeout(()=>{notice.textContent='';notice.style.opacity='1';},500);},5000);
 }
 </script>
 </body>
