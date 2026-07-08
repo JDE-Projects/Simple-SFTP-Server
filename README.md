@@ -19,17 +19,17 @@ If you enjoyed this project and would like to buy me a coffee, check out my [Ko-
 
 ## Highlights
 - Quick Start: one click brings a full-access share live with a fresh random
-  password, shown in an on-screen connection card you can copy and send.
+  password in a copyable connection card.
 - Users with a per-user folder (a real folder picker, or "Make folder"), and a
   jail so each user only ever sees inside their own folder.
 - Three access modes per user: read-only, read & write, or upload-only
   (a drop box). Deleting and renaming is off unless you allow it.
-- Sign-in by password, public key, or both, with a built-in generator for
-  Ed25519 (default) or RSA-4096 key pairs to hand to a user who has none.
+- Sign-in by password, public key, or both, with a built-in Ed25519 (default)
+  or RSA-4096 key generator for users who have none.
 - Connection card: LAN address, on-demand public IP, port, and the host-key
   fingerprint, all copyable for first-connection verification.
 - Live panel: connected clients, in-flight transfers, a recent-activity feed,
-  and locked-out IP addresses with one-click Unlock and Unlock all.
+  and locked-out IPs with one-click Unlock.
 - Brute-force lockout: five failed logins from an address are blocked for
   fifteen minutes, with a manual override.
 - Default port 2222 (no admin needed), with a plain-language message if a port
@@ -64,9 +64,29 @@ may warn the first time: More info > Run anyway. On first connection a client
 also needs your firewall to allow the port, and for access from outside your
 network, a port-forward to this machine.
 
+## Updating
+
+Simple SFTP Server doesn't update itself. The bottom bar has a **Check for
+updates** button that tells you when a newer release is out; when it does,
+get the new version from the [Releases](../../releases) page the same way you
+first installed it.
+
+- **Installer:** download the new `SimpleSFTPServer-vX.Y.Z-setup.exe` and run
+  it. It installs over your current copy and keeps your saved users, folders,
+  and theme choice.
+- **Portable .zip:** download and extract the new `SimpleSFTPServer-vX.Y.Z.zip`.
+  To keep your saved users and settings, copy `server_config.json` from the
+  old folder into the new one. Also copy `host_ed25519`, the server's host
+  key, so its fingerprint stays the same for clients who already trust it;
+  otherwise every client will see a fingerprint-changed warning on first
+  reconnect. Copy `simple_sftp_server.pref` too, for your theme choice.
+
+Saved-user passwords exist only as bcrypt hashes inside `server_config.json`,
+so there's nothing else to carry over.
+
 ## Verify this download (optional)
-This release was built on GitHub from this public source - not on a personal
-machine - and is signed with a build-provenance attestation. To confirm a
+This release was built on GitHub from this public source, not on a personal
+machine, and is signed with a build-provenance attestation. To confirm your
 download is genuine, install the [GitHub CLI](https://cli.github.com) and run:
 
 ```
@@ -122,21 +142,11 @@ pipeline from this repo. You can also check the file against the published
 - The optional debug log is off by default; when on it writes
   `Debug_Log_MMDDYYYY_HHMMSS.txt` next to the app with credentials redacted.
 
-## Updating
-The "Check for updates" button in the bottom-right corner compares your
-version to the latest GitHub Release and shows the result inline in the
-bottom bar. If a newer version exists, a persistent link appears so you
-can view the release. Otherwise a brief "No update" message shows and
-fades on its own. The check is silent when you are offline.
-
-To update: download the latest release from the
-[Releases](../../releases) page and replace the existing exe, or re-run
-the installer.
-
 ## A note on how this was built
 This project was built with AI assistance. The design decisions, feature
 direction, and real-world testing were directed by me. The code was written
-and revised with an AI assistant against that direction.
+and revised with an AI assistant against that direction. Treat it like any
+community tool: review and test it before relying on it.
 
 ## License
 Released under the PolyForm Noncommercial License 1.0.0 (see
