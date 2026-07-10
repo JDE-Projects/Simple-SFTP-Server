@@ -923,7 +923,11 @@ class Api:
     def pick_folder(self):
         try:
             import webview
-            res = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+            try:
+                dlg = webview.FileDialog.FOLDER
+            except AttributeError:  # older pywebview
+                dlg = webview.FOLDER_DIALOG
+            res = self._window.create_file_dialog(dlg)
             if res:
                 return {"ok": True, "path": res[0] if isinstance(res, (list, tuple)) else res}
             return {"ok": False}
@@ -1081,8 +1085,12 @@ class Api:
     def browse_save_key(self, suggested):
         try:
             import webview
+            try:
+                dlg = webview.FileDialog.SAVE
+            except AttributeError:  # older pywebview
+                dlg = webview.SAVE_DIALOG
             res = self._window.create_file_dialog(
-                webview.SAVE_DIALOG, save_filename=suggested or "id_ed25519")
+                dlg, save_filename=suggested or "id_ed25519")
             return res[0] if isinstance(res, (list, tuple)) and res else (res or "")
         except Exception:
             return ""
