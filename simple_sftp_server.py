@@ -816,7 +816,7 @@ class SFTPService:
     def connections(self):
         out = []
         with self._lock:
-            for sid, s in self._sessions.items():
+            for _sid, s in self._sessions.items():
                 out.append({"ip": s["ip"], "user": s["user"],
                             "since": int(time.time() - s["since"]),
                             "active": len(s["transfers"])})
