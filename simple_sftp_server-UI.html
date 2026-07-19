@@ -43,6 +43,15 @@
   .grow{flex:1 1 auto;}
   .app{display:flex;flex-direction:column;height:100vh;padding:12px 14px 8px;gap:10px;}
   .panel{background:linear-gradient(180deg,var(--panel),var(--bg-2));border:1px solid var(--border);border-radius:var(--radius);}
+
+  /* header */
+  header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex:0 0 auto;}
+  .head-left{min-width:0;}
+  .title{font-family:"Sora",sans-serif;font-size:19px;font-weight:700;color:var(--text);letter-spacing:.2px;}
+  .byline{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--text-dim);margin-top:3px;}
+  .gh-link{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--accent);cursor:pointer;text-decoration:none;}
+  .gh-link:hover{text-decoration:underline;}
+  .head-right{flex:0 0 auto;}
   .field-label{display:block;font-size:10.5px;color:var(--text-dim);margin-bottom:4px;}
   input,select,textarea{font-family:inherit;font-size:12.5px;color:var(--text);background:var(--panel-2);border:1px solid var(--border-2);
     border-radius:var(--radius-sm);padding:7px 10px;outline:none;transition:border-color .15s,box-shadow .15s;}
@@ -178,20 +187,26 @@
   #updateNotice a{color:var(--accent);text-decoration:none;font-weight:500;}
   #updateNotice a:hover{text-decoration:underline;}
 
+  /* firewall warning banner (advisory, non-blocking) */
+  .fw-banner{display:none;align-items:flex-start;gap:8px;background:color-mix(in srgb,var(--amber) 14%,transparent);
+    border:1px solid var(--amber);border-radius:var(--radius-sm);padding:9px 11px;margin-bottom:8px;
+    font-size:11.5px;line-height:1.5;color:var(--text);}
+  .fw-banner.show{display:flex;}
+  .fw-banner a{color:var(--accent);text-decoration:none;font-weight:500;}
+  .fw-banner a:hover{text-decoration:underline;}
+
   ::-webkit-scrollbar{width:11px;height:11px;} ::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:6px;border:2px solid var(--bg);}
 </style>
 </head>
 <body>
 <div class="app">
-  <!-- control bar -->
-  <div class="panel conn">
-    <div class="f port"><label class="field-label">Port</label><input id="port" class="mono" value="2222"></div>
-    <button id="checkBtn" class="btn-ghost">Check Port</button>
-    <button id="startBtn" class="btn-primary">Start Server</button>
-    <button id="stopBtn" class="btn-danger" disabled>Stop</button>
-    <span class="vsep"></span>
-    <button id="quickBtn" class="btn-ghost" title="One click: full-access share with a fresh random password">Quick Start</button>
-    <div class="conn-right">
+  <!-- header -->
+  <header>
+    <div class="head-left">
+      <div class="title">Simple SFTP Server</div>
+      <div class="byline">by <a class="gh-link" href="#" onclick="if(API)API.open_url('https://github.com/JDE-Projects');return false;">JDE-Projects</a></div>
+    </div>
+    <div class="head-right">
       <button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle theme">
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
           <circle cx="12" cy="12" r="4"/>
@@ -201,6 +216,18 @@
           <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
         </svg>
       </button>
+    </div>
+  </header>
+
+  <!-- control bar -->
+  <div class="panel conn">
+    <div class="f port"><label class="field-label">Port</label><input id="port" class="mono" value="2222"></div>
+    <button id="checkBtn" class="btn-ghost">Check Port</button>
+    <button id="startBtn" class="btn-primary">Start Server</button>
+    <button id="stopBtn" class="btn-danger" disabled>Stop</button>
+    <span class="vsep"></span>
+    <button id="quickBtn" class="btn-ghost" title="One click: full-access share with a fresh random password">Quick Start</button>
+    <div class="conn-right">
       <div class="conn-status"><span id="dot" class="dot"></span><span id="statusText">Stopped</span></div>
     </div>
   </div>
@@ -211,6 +238,12 @@
       <div class="panel card-pane" id="connCard" style="flex:0 0 auto">
         <div class="pane-head"><div class="pane-title">Connection Details<span class="grow"></span><span id="accessNote" class="badge gray">Stopped</span></div></div>
         <div class="pane-body pad">
+          <div id="fwBanner" class="fw-banner">
+            <span>Server is running, but Windows Firewall may be blocking connections from other devices on
+            port <span id="fwPort">2222</span>. An administrator can allow it in Windows Defender Firewall.
+            Third-party firewalls or your router may also need the port opened.
+            <a href="#" onclick="if(API)API.open_url('https://github.com/JDE-Projects/Simple-SFTP-Server/blob/main/README.md#firewall-and-network-access');return false;">Learn more</a></span>
+          </div>
           <div class="kv"><span class="k">Address (LAN)</span><span class="v mono" id="vLan">—</span><button class="cp" data-c="vLan">Copy</button></div>
           <div class="kv"><span class="k">Public IP</span><span class="v mono" id="vPub">—</span><button id="pubBtn" class="cp">Get</button></div>
           <div class="kv"><span class="k">Port</span><span class="v mono" id="vPort">—</span><button class="cp" data-c="vPort">Copy</button></div>
@@ -537,6 +570,7 @@ function clearConnDetails(){
   $("copyCard").disabled=true;
   const note=$("accessNote");
   note.textContent="Stopped"; note.className="badge gray";
+  $("fwBanner").classList.remove("show");
 }
 
 function applyStatus(s){
@@ -555,6 +589,8 @@ function applyStatus(s){
     $("vPort").textContent=s.port||"—";
     $("vFp").textContent=s.fingerprint||"—";
     $("copyCard").disabled=false;
+    if(s.firewall==="blocked"){$("fwPort").textContent=s.port||"—";$("fwBanner").classList.add("show");}
+    else{$("fwBanner").classList.remove("show");}
     const note=$("accessNote");
     if(isQuick){
       $("vUser").textContent="quickstart";
@@ -777,14 +813,14 @@ async function doUpdate(manual){
   const notice=$("updateNotice");
   const r=await API.check_update();
   if(!r.ok){
-    if(manual){notice.style.opacity='1';notice.textContent="Couldn’t reach GitHub";fadeNotice();}
+    if(manual){notice.style.opacity='1';notice.textContent="Couldn't reach GitHub to check for updates";fadeNotice();}
     return;
   }
   if(r.update){
     notice.style.opacity='1';
     notice.innerHTML='Update available: <a href="https://github.com/JDE-Projects/Simple-SFTP-Server/blob/main/README.md#updating" target="_blank" rel="noopener">v'+esc(r.latest)+'</a>';
   } else if(manual){
-    notice.style.opacity='1';notice.textContent="No update";fadeNotice();
+    notice.style.opacity='1';notice.textContent="You're on the latest version (v"+esc(r.current)+")";fadeNotice();
   }
 }
 

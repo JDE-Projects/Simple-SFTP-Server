@@ -123,6 +123,31 @@ pipeline from this repo. You can also check the file against the published
 5. Generate an Ed25519 or RSA key pair for a user who needs one, hand them the
    private key, and the public key is added to their account automatically.
 
+## Firewall and network access
+The first time the server starts listening, Windows shows its own one-time
+"Windows Security Alert" popup asking whether to allow the app through Windows
+Defender Firewall. Clicking Allow needs administrator rights. If you are not an
+administrator, or you dismiss or deny the popup, no allow rule is created (and
+Windows may even add a block rule), so inbound connections stay blocked with no
+further prompt on later launches.
+
+If that happens, an administrator can add an allow rule after the fact in
+Windows Defender Firewall (Control Panel > Windows Defender Firewall >
+Advanced settings > Inbound Rules), allowing the app or the chosen port for
+the profile you use (Private, Public, or Domain).
+
+The app also runs a quick, read-only check of the Windows Firewall state after
+it starts, and shows an amber warning in Connection Details if it looks like
+the firewall may be blocking the chosen port. That check only sees Windows
+Defender Firewall, so it cannot detect a third-party firewall (common in some
+antivirus suites) or a router blocking the connection; no warning does not
+guarantee a client on another network can reach you.
+
+For access from outside your local network, forward the chosen port on your
+router to this machine's LAN address, in addition to allowing it locally.
+Third-party firewalls, if you run one, may also need the port opened
+separately from Windows Defender Firewall.
+
 ## Security and privacy
 - Saved-user passwords are stored only as a one-way bcrypt hash and are never
   shown again after you save them. Public-key users store only their public

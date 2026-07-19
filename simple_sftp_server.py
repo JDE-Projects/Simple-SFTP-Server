@@ -22,6 +22,7 @@ import sys
 import io
 import re
 import ctypes
+from ctypes import wintypes
 import json
 import time
 import errno
@@ -244,6 +245,135 @@ def port_is_free(port):
         return False
     finally:
         s.close()
+
+
+# ───────────── firewall detection (advisory, read-only, no admin) ─────────────
+def _parse_firewall_rule(s):
+    """Split a pipe-delimited Windows Firewall rule string into a dict with
+    lowercased keys, e.g. 'Action=Allow|Dir=In|LocalPort=2222' -> {"action":"Allow",...}.
+    Tolerant of malformed or empty segments; never raises."""
+    out = {}
+    if not s:
+        return out
+    for seg in str(s).split("|"):
+        if "=" not in seg:
+            continue
+        k, _, v = seg.partition("=")
+        k = k.strip().lower()
+        if k:
+            out[k] = v.strip()
+    return out
+
+
+def _port_in_localport(port, localport):
+    """True if `port` matches a rule's LocalPort value: exact, 'Any', a comma list, or an 'a-b' range."""
+    if not localport:
+        return False
+    localport = localport.strip()
+    if localport.lower() == "any":
+        return True
+    port = str(port)
+    for part in localport.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            lo, _, hi = part.partition("-")
+            try:
+                if int(lo) <= int(port) <= int(hi):
+                    return True
+            except ValueError:
+                continue
+        elif part == port:
+            return True
+    return False
+
+
+def _rule_allows(parsed, exe_norm, port):
+    """True only for an ENABLED, INBOUND, ALLOW rule that clearly matches our exe path
+    or our TCP port. Conservative on purpose: only a clear match returns True."""
+    if not parsed:
+        return False
+    if (parsed.get("active", "TRUE") or "TRUE").upper() == "FALSE":
+        return False
+    if (parsed.get("action") or "").strip().lower() != "allow":
+        return False
+    if (parsed.get("dir") or "").strip().lower() != "in":
+        return False
+    app = parsed.get("app")
+    if app:
+        try:
+            if os.path.normcase(os.path.realpath(app)) == exe_norm:
+                return True
+        except Exception:
+            pass
+    protocol = (parsed.get("protocol") or "").strip()
+    if protocol == "6" and _port_in_localport(port, parsed.get("localport")):
+        return True
+    return False
+
+
+def _decide_firewall(any_profile_enabled, has_allow):
+    """Three-state decision: 'allowed' / 'blocked' / 'unknown'."""
+    if has_allow:
+        return "allowed"
+    if any_profile_enabled is False:
+        return "allowed"
+    if any_profile_enabled is True:
+        return "blocked"
+    return "unknown"
+
+
+def _firewall_status(port):
+    """Advisory-only, read-only registry check. Any failure (missing key, permission,
+    unexpected value) is logged and returns 'unknown'; this must never raise and must
+    never affect whether the server runs."""
+    try:
+        import winreg
+        policy = r"SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy"
+        readable = False
+        any_enabled = False
+        for profile in ("StandardProfile", "PublicProfile", "DomainProfile"):
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f"{policy}\\{profile}") as k:
+                    val, _ = winreg.QueryValueEx(k, "EnableFirewall")
+                readable = True
+                if val == 1:
+                    any_enabled = True
+            except OSError:
+                continue
+        any_profile_enabled = any_enabled if readable else None
+
+        exe_norm = os.path.normcase(os.path.realpath(
+            sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__)))
+
+        # Known limitation (see roadmap.md "Firewall detection and messaging"): we treat
+        # "any profile enabled" as a proxy for whichever profile is actually active,
+        # since reliably determining the in-use profile without admin rights or COM is
+        # not practical here. We also only see Windows Defender Firewall, never
+        # third-party firewalls or the router. That is why the UI says connections
+        # "may be" blocked rather than stating it as certain.
+        has_allow = False
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f"{policy}\\FirewallRules") as k:
+                i = 0
+                while True:
+                    try:
+                        _name, value, _vtype = winreg.EnumValue(k, i)
+                    except OSError:
+                        break
+                    i += 1
+                    parsed = _parse_firewall_rule(value)
+                    if _rule_allows(parsed, exe_norm, port):
+                        has_allow = True
+                        break
+        except OSError:
+            pass
+
+        return _decide_firewall(any_profile_enabled, has_allow)
+    except Exception as e:
+        debug.log("firewall check failed", str(e))
+        return "unknown"
 
 
 # ───────────── host key ─────────────
@@ -826,6 +956,121 @@ class SFTPService:
         self.api.emit("status", self.api.status_payload())
 
 
+# ───────────── prefs (theme + window geometry) ─────────────
+def _pref_file():
+    return os.path.join(exe_dir(), "simple_sftp_server.pref")
+
+
+def load_prefs():
+    try:
+        with open(_pref_file(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_prefs(prefs):
+    try:
+        with open(_pref_file(), "w", encoding="utf-8") as f:
+            json.dump(prefs, f)
+        return True
+    except Exception as e:
+        debug.log("save prefs failed", str(e))
+        return False
+
+
+def _valid_geometry(geo):
+    """Pure validation: a stored {x,y,width,height} dict -> a clamped dict, or {} if unusable."""
+    if not isinstance(geo, dict):
+        return {}
+    x, y, w, h = geo.get("x"), geo.get("y"), geo.get("width"), geo.get("height")
+    for v in (x, y, w, h):
+        if not isinstance(v, int) or isinstance(v, bool):
+            return {}
+    w = max(980, min(w, 10000))   # min_size floor .. sane ceiling
+    h = max(680, min(h, 10000))
+    return {"x": x, "y": y, "width": w, "height": h}
+
+
+def _restore_geometry():
+    try:
+        geo = _valid_geometry(load_prefs().get("window"))
+        if not geo:
+            return {}
+        # Is a point in the title bar still on a connected monitor?
+        point = wintypes.POINT(geo["x"] + 100, geo["y"] + 30)
+        user32 = ctypes.windll.user32
+        user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+        user32.MonitorFromPoint.restype = wintypes.HMONITOR
+        if not user32.MonitorFromPoint(point, 0):   # MONITOR_DEFAULTTONULL
+            return {}
+        return geo
+    except Exception:
+        return {}
+
+
+def _win32():
+    """user32 with argtypes set for the window-geometry calls (64-bit HWND safe)."""
+    u = ctypes.windll.user32
+    u.FindWindowW.restype = wintypes.HWND
+    u.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
+    u.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    u.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+                               ctypes.c_int, ctypes.c_int, wintypes.UINT]
+    return u
+
+
+def _window_rect():
+    """Our window's absolute frame rectangle via Win32 as {x, y, width, height} in
+    physical pixels, or None. GetWindowRect and SetWindowPos share one frame-based
+    physical coordinate space, so save and restore round-trip exactly on any monitor and
+    at any DPI scaling. (pywebview's own window.x/window.move mix a client-origin read
+    with a frame move in Qt's scaled, primary-relative space, which drifts each launch
+    and lands on the wrong monitor.)"""
+    try:
+        u = _win32()
+        hwnd = u.FindWindowW(None, "Simple SFTP Server")
+        if not hwnd:
+            return None
+        r = wintypes.RECT()
+        if not u.GetWindowRect(hwnd, ctypes.byref(r)):
+            return None
+        return {"x": r.left, "y": r.top, "width": r.right - r.left, "height": r.bottom - r.top}
+    except Exception:
+        return None
+
+
+def _apply_window_rect(geo):
+    """Place our window frame at an absolute rect saved by _window_rect. Windows-only."""
+    try:
+        u = _win32()
+        hwnd = u.FindWindowW(None, "Simple SFTP Server")
+        if not hwnd:
+            return
+        SWP_NOZORDER, SWP_NOACTIVATE = 0x0004, 0x0010
+        u.SetWindowPos(hwnd, None, geo["x"], geo["y"], geo["width"], geo["height"],
+                       SWP_NOZORDER | SWP_NOACTIVATE)
+    except Exception:
+        pass
+
+
+def _save_geometry(win=None):
+    try:
+        geo = _window_rect()
+        if not geo:
+            return
+        if geo["x"] <= -30000 or geo["y"] <= -30000:   # minimized sentinel, not a real spot
+            return
+        if geo["width"] < 200 or geo["height"] < 200:   # implausible; don't persist
+            return
+        prefs = load_prefs()
+        prefs["window"] = geo
+        save_prefs(prefs)
+    except Exception:
+        pass
+
+
 # ───────────── js api ─────────────
 class Api:
     def __init__(self):
@@ -834,6 +1079,7 @@ class Api:
         self._quick_user = None
         self._quick_password = ""
         self._new_password = ""
+        self._firewall_state = None
 
     def set_window(self, w):
         self._window = w
@@ -858,26 +1104,16 @@ class Api:
         return {"ok": ok, "enabled": debug.is_enabled()}
 
     # ---- theme persistence ----
-    def _pref_path(self):
-        return os.path.join(exe_dir(), "simple_sftp_server.pref")
-
     def get_theme(self):
-        try:
-            with open(self._pref_path(), "r", encoding="utf-8") as f:
-                theme = json.load(f).get("theme")
-            return theme if theme in ("dark", "light") else "dark"
-        except Exception:
-            return "dark"
+        theme = load_prefs().get("theme")
+        return theme if theme in ("dark", "light") else "dark"
 
     def save_theme(self, theme):
         if theme not in ("dark", "light"):
             return {"ok": False}
-        try:
-            with open(self._pref_path(), "w", encoding="utf-8") as f:
-                json.dump({"theme": theme}, f)
-            return {"ok": True}
-        except Exception:
-            return {"ok": False}
+        prefs = load_prefs()
+        prefs["theme"] = theme
+        return {"ok": save_prefs(prefs)}
 
     # ---- config ----
     def _load_config(self):
@@ -1097,6 +1333,14 @@ class Api:
             return ""
 
     # ---- start / stop ----
+    def _check_firewall_async(self, port):
+        # Advisory only: runs on a daemon thread so it never delays startup, and a
+        # failure inside _firewall_status is caught there and returns "unknown".
+        def worker():
+            self._firewall_state = _firewall_status(port)
+            self.emit("status", self.status_payload())
+        threading.Thread(target=worker, daemon=True).start()
+
     def start_server(self, port):
         cfg = self._load_config()
         if not cfg.get("users"):
@@ -1106,15 +1350,18 @@ class Api:
             self._save_config(cfg)
         except Exception:
             pass
-        r = self.service.start(int(port or DEFAULT_PORT), quick=False)
+        use_port = int(port or DEFAULT_PORT)
+        r = self.service.start(use_port, quick=False)
         if r.get("ok"):
             self.emit("status", self.status_payload())
+            self._check_firewall_async(use_port)
         return r
 
     def stop_server(self, delete_folder=False):
         was_quick = self.service.is_quick
         quick_folder = QUICK_FOLDER if was_quick else ""
         self.service.stop()
+        self._firewall_state = None
         self._quick_user = None
         self._quick_password = ""
         if delete_folder and was_quick and quick_folder and os.path.isdir(quick_folder):
@@ -1145,6 +1392,7 @@ class Api:
             self._quick_password = ""
             return r
         self.emit("status", self.status_payload())
+        self._check_firewall_async(port)
         return {"ok": True, "port": port, "folder": QUICK_FOLDER, "username": "quickstart"}
 
     def reveal_quick_password(self):
@@ -1161,7 +1409,8 @@ class Api:
                 "fingerprint": fingerprint_sha256(self.service.host_key) if self.service.host_key else "",
                 "connections": self.service.connections() if running else [],
                 "locked": self.service.lockout.locked_list(),
-                "quick_folder": QUICK_FOLDER if self.service.is_quick else ""}
+                "quick_folder": QUICK_FOLDER if self.service.is_quick else "",
+                "firewall": self._firewall_state if running else None}
 
     def get_status(self):
         return self.status_payload()
@@ -1289,12 +1538,27 @@ def main():
         except Exception:
             pass
     api = Api()
+    geo = _restore_geometry()
     window = webview.create_window(
         "Simple SFTP Server", url=resource_path("simple_sftp_server-UI.html"),
         js_api=api, width=1180, height=820, min_size=(980, 680),
         background_color="#0a0e14")
     api.set_window(window)
     window.events.loaded += _on_loaded
+
+    if geo:
+        # Restore the exact saved window rectangle once the window exists, via Win32
+        # (see _apply_window_rect) rather than create_window x/y or window.move: those use
+        # Qt's scaled, primary-relative coordinates and drift across monitors and DPI.
+        # SetWindowPos is symmetric with the Win32 save, so it round-trips exactly.
+        def _restore_pos():
+            _apply_window_rect(geo)
+        window.events.shown += _restore_pos
+
+    def _on_closing():
+        _save_geometry(window)
+        return True
+    window.events.closing += _on_closing
     try:
         webview.start(gui="qt", icon=resource_path("simple_sftp_server.png"))
     except TypeError:
