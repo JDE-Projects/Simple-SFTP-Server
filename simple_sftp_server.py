@@ -40,7 +40,7 @@ from urllib.request import Request, urlopen
 import paramiko
 import bcrypt
 
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 GITHUB_REPO = "JDE-Projects/Simple-SFTP-Server"
 DEFAULT_PORT = 2222
 
