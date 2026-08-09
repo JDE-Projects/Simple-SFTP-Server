@@ -45,13 +45,14 @@
   .panel{background:linear-gradient(180deg,var(--panel),var(--bg-2));border:1px solid var(--border);border-radius:var(--radius);}
 
   /* header */
-  header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex:0 0 auto;}
-  .head-left{min-width:0;}
+  .app-header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex:0 0 auto;}
+  .app-header .brand{display:flex;align-items:center;gap:13px;min-width:0;}
+  .app-glyph{width:40px;height:40px;border-radius:11px;flex:0 0 auto;display:block;box-shadow:0 0 24px var(--glow);}
   .title{font-family:"Sora",sans-serif;font-size:19px;font-weight:700;color:var(--text);letter-spacing:.2px;}
   .byline{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--text-dim);margin-top:3px;}
   .gh-link{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--accent);cursor:pointer;text-decoration:none;}
   .gh-link:hover{text-decoration:underline;}
-  .head-right{flex:0 0 auto;}
+  .head-right{display:flex;align-items:center;gap:12px;flex:0 0 auto;}
   .field-label{display:block;font-size:10.5px;color:var(--text-dim);margin-bottom:4px;}
   input,select,textarea{font-family:inherit;font-size:12.5px;color:var(--text);background:var(--panel-2);border:1px solid var(--border-2);
     border-radius:var(--radius-sm);padding:7px 10px;outline:none;transition:border-color .15s,box-shadow .15s;}
@@ -201,10 +202,13 @@
 <body>
 <div class="app">
   <!-- header -->
-  <header>
-    <div class="head-left">
-      <div class="title">Simple SFTP Server</div>
-      <div class="byline">by <a class="gh-link" href="#" onclick="if(API)API.open_url('https://github.com/JDE-Projects');return false;">JDE-Projects</a></div>
+  <header class="app-header">
+    <div class="brand">
+      <img class="app-glyph" src="simple_sftp_server.png" alt="">
+      <div>
+        <div class="title">Simple SFTP Server</div>
+        <div class="byline">by <a class="gh-link" href="#" onclick="if(API)API.open_url('https://github.com/JDE-Projects');return false;">JDE-Projects</a></div>
+      </div>
     </div>
     <div class="head-right">
       <button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle theme">
@@ -286,8 +290,8 @@
     <div class="bar-left"><div id="debugToggle" class="toggle"><span class="switch"></span><span>Debug log</span></div></div>
     <div class="bar-center"><span id="updateNotice"></span></div>
     <div class="bar-right">
-      <span id="verText" class="meta" style="color:var(--text-faint)"></span>
-      <button id="updateCheck" class="btn-ghost btn-sm">Check for updates</button>
+      <span id="verLabel" class="meta" style="color:var(--text-faint)"></span>
+      <button id="updateBtn" class="btn-ghost btn-sm">Check for updates</button>
     </div>
   </div>
 </div>
@@ -367,6 +371,13 @@
   </div>
 </div></div>
 
+<!-- update-check failure modal -->
+<div id="updateErrModal" class="modal"><div class="card" style="width:480px">
+  <h3>Couldn't check for updates</h3>
+  <p id="updateErrMsg" style="font-size:12.5px;line-height:1.5;color:var(--text);margin:0 0 16px"></p>
+  <div class="modal-actions"><button id="updateErrClose" class="btn-ghost">Close</button></div>
+</div></div>
+
 <div id="toast"></div>
 
 <script>
@@ -413,7 +424,7 @@ async function init(){
   API=window.pywebview.api;
   await initTheme();
   meta=await API.get_meta();
-  $("verText").textContent="v"+meta.version;
+  $("verLabel").textContent="v"+meta.version;
   $("port").value=(meta.settings&&meta.settings.port)||meta.default_port||2222;
   const kg=$("kgType"); meta.key_types.forEach(t=>{const o=document.createElement("option");o.value=t;o.textContent=t;kg.appendChild(o);});
   users=meta.users||[]; renderUsers();
@@ -449,7 +460,8 @@ async function init(){
   $("kgCopy").onclick=()=>{copyText($("kgPub").textContent);toast("Public key copied");};
 
   $("debugToggle").onclick=async()=>{const on=!$("debugToggle").classList.contains("on");const r=await API.set_debug(on);$("debugToggle").classList.toggle("on",r.enabled);toast(r.enabled?"Debug log on":"Debug log off");};
-  $("updateCheck").onclick=()=>doUpdate(true);
+  $("updateBtn").onclick=()=>doUpdate(true);
+  $("updateErrClose").onclick=closeUpdateErrorModal;
 
   applyStatus(await API.get_status());
   tickTimer=setInterval(tick,1000);
@@ -811,18 +823,31 @@ async function initTheme(){if(!API)return;try{const t=await API.get_theme();appl
 /* ---------- updates ---------- */
 async function doUpdate(manual){
   const notice=$("updateNotice");
-  const r=await API.check_update();
-  if(!r.ok){
-    if(manual){notice.style.opacity='1';notice.textContent="Couldn't reach GitHub to check for updates";fadeNotice();}
-    return;
-  }
-  if(r.update){
-    notice.style.opacity='1';
-    notice.innerHTML='Update available: <a href="https://github.com/JDE-Projects/Simple-SFTP-Server/blob/main/README.md#updating" target="_blank" rel="noopener">v'+esc(r.latest)+'</a>';
-  } else if(manual){
-    notice.style.opacity='1';notice.textContent="You're on the latest version (v"+esc(r.current)+")";fadeNotice();
+  const btn=$("updateBtn");
+  if(manual){btn.disabled=true;btn.textContent="Checking...";}
+  notice.style.opacity='1';
+  try{
+    const r=await API.check_update();
+    if(r&&r.update){
+      notice.innerHTML='Update available: <a href="https://github.com/JDE-Projects/Simple-SFTP-Server/blob/main/README.md#updating" target="_blank" rel="noopener">v'+esc(r.version)+'</a>';
+    }else if(manual&&r&&r.offline){
+      notice.textContent="Couldn't reach GitHub to check for updates.";fadeNotice();
+      openUpdateErrorModal(r.reason||"The app couldn't run the update check.");
+    }else if(manual){
+      notice.textContent="You're on the latest version (v"+esc(r&&r.current||meta.version)+")";fadeNotice();
+    }
+  }catch(e){
+    if(manual){
+      notice.textContent="Couldn't reach GitHub to check for updates.";fadeNotice();
+      openUpdateErrorModal("The app couldn't run the update check.");
+    }
+  }finally{
+    if(manual){btn.disabled=false;btn.textContent="Check for updates";}
   }
 }
+
+function openUpdateErrorModal(reason){$("updateErrMsg").textContent=reason;$("updateErrModal").classList.add("show");}
+function closeUpdateErrorModal(){$("updateErrModal").classList.remove("show");}
 
 function fadeNotice(){
   const notice=$("updateNotice");

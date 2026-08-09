@@ -27,6 +27,7 @@ import json
 import time
 import errno
 import socket
+import ssl
 import base64
 import hashlib
 import secrets
@@ -36,6 +37,7 @@ import shutil
 import webbrowser
 from datetime import datetime
 from urllib.request import Request, urlopen
+import urllib.error
 
 import paramiko
 import bcrypt
@@ -1013,12 +1015,53 @@ def _restore_geometry():
 def _win32():
     """user32 with argtypes set for the window-geometry calls (64-bit HWND safe)."""
     u = ctypes.windll.user32
-    u.FindWindowW.restype = wintypes.HWND
-    u.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
     u.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
     u.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
                                ctypes.c_int, ctypes.c_int, wintypes.UINT]
     return u
+
+
+def _own_window_handle(title):
+    """Return our visible top-level window with an exact title, or None."""
+    try:
+        u = ctypes.windll.user32
+        WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        u.EnumWindows.argtypes = [WNDENUMPROC, wintypes.LPARAM]
+        u.EnumWindows.restype = wintypes.BOOL
+        u.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        u.GetWindowThreadProcessId.restype = wintypes.DWORD
+        u.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        u.GetWindowTextLengthW.restype = ctypes.c_int
+        u.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        u.GetWindowTextW.restype = ctypes.c_int
+        u.IsWindowVisible.argtypes = [wintypes.HWND]
+        u.IsWindowVisible.restype = wintypes.BOOL
+
+        own_pid = os.getpid()
+        found = {"hwnd": None}
+
+        def _callback(hwnd, _lparam):
+            if not u.IsWindowVisible(hwnd):
+                return True
+            pid = wintypes.DWORD()
+            u.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value != own_pid:
+                return True
+            length = u.GetWindowTextLengthW(hwnd)
+            if length <= 0:
+                return True
+            buf = ctypes.create_unicode_buffer(length + 1)
+            u.GetWindowTextW(hwnd, buf, length + 1)
+            if buf.value != title:
+                return True
+            found["hwnd"] = hwnd
+            return False
+
+        proc = WNDENUMPROC(_callback)
+        u.EnumWindows(proc, 0)
+        return found["hwnd"]
+    except Exception:
+        return None
 
 
 def _window_rect():
@@ -1030,7 +1073,7 @@ def _window_rect():
     and lands on the wrong monitor.)"""
     try:
         u = _win32()
-        hwnd = u.FindWindowW(None, "Simple SFTP Server")
+        hwnd = _own_window_handle("Simple SFTP Server")
         if not hwnd:
             return None
         r = wintypes.RECT()
@@ -1045,7 +1088,7 @@ def _apply_window_rect(geo):
     """Place our window frame at an absolute rect saved by _window_rect. Windows-only."""
     try:
         u = _win32()
-        hwnd = u.FindWindowW(None, "Simple SFTP Server")
+        hwnd = _own_window_handle("Simple SFTP Server")
         if not hwnd:
             return
         SWP_NOZORDER, SWP_NOACTIVATE = 0x0004, 0x0010
@@ -1072,6 +1115,47 @@ def _save_geometry(win=None):
 
 
 # ───────────── js api ─────────────
+def _update_error_reason(exc: BaseException) -> str:
+    """Return a short, plain-language update-check failure reason.
+
+    This is deliberately pure and network-free so each error branch can be
+    tested without making an HTTP request.
+    """
+    if isinstance(exc, urllib.error.HTTPError):
+        if exc.code == 403:
+            return "GitHub is rate-limiting update checks from this network. Try again later."
+        if exc.code == 404:
+            return "No published release was found."
+        if 500 <= exc.code < 600:
+            return f"GitHub is having trouble on its end (HTTP {exc.code})."
+        return f"GitHub returned an error (HTTP {exc.code})."
+
+    if isinstance(exc, json.JSONDecodeError):
+        return "GitHub returned something unexpected. This often means a proxy or a guest wifi sign-in page answered instead."
+
+    is_url_error = isinstance(exc, urllib.error.URLError)
+    cause = exc.reason if is_url_error and exc.reason is not None else exc
+    if isinstance(cause, ssl.SSLCertVerificationError):
+        return "GitHub's certificate could not be verified. This usually means antivirus or a network filter is inspecting HTTPS traffic."
+    if isinstance(cause, (ssl.SSLEOFError, ssl.SSLZeroReturnError)):
+        return "The secure connection was cut off during the handshake with GitHub."
+    if isinstance(cause, ssl.SSLError):
+        return "The secure connection to GitHub failed."
+    if isinstance(cause, socket.gaierror):
+        return "The address for api.github.com could not be looked up. Check DNS or the internet connection."
+    if isinstance(cause, (socket.timeout, TimeoutError)):
+        return "GitHub didn't respond in time."
+    if isinstance(cause, (ConnectionRefusedError, ConnectionResetError)):
+        return "The connection was refused or reset. A firewall or proxy may be blocking it."
+    if isinstance(cause, OSError) and getattr(cause, "errno", None) == errno.ENETUNREACH:
+        return "No network connection."
+    if is_url_error:
+        return "Couldn't reach GitHub. Check the internet connection."
+
+    text = f"{type(exc).__name__}: {exc}"
+    return text if len(text) <= 120 else text[:117] + "..."
+
+
 class Api:
     def __init__(self):
         self._window = None
@@ -1433,18 +1517,22 @@ class Api:
 
     # ---- update / misc ----
     def check_update(self):
+        result = {"current": APP_VERSION, "version": None, "update": False, "offline": False}
         try:
             url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
             req = Request(url, headers={"User-Agent": "Simple-SFTP-Server",
                                         "Accept": "application/vnd.github+json"})
-            with urlopen(req, timeout=8) as r:
+            with urlopen(req, timeout=10) as r:
                 data = json.loads(r.read().decode())
             tag = (data.get("tag_name") or "").lstrip("v")
-            return {"ok": True, "current": APP_VERSION, "latest": tag,
-                    "update": self._is_newer(tag, APP_VERSION),
-                    "notes": (data.get("body") or "")[:1500], "url": data.get("html_url", "")}
+            result["version"] = tag
+            result["update"] = bool(tag and self._is_newer(tag, APP_VERSION))
+            debug.log("check_update", f"found v{tag}, current v{APP_VERSION}")
         except Exception as e:
-            return {"ok": False, "error": friendly_error(e)}
+            result["offline"] = True
+            result["reason"] = _update_error_reason(e)
+            debug.log("check_update failed", f"{type(e).__name__}: {e}")
+        return result
 
     def _is_newer(self, latest, current):
         def parts(v):
@@ -1525,6 +1613,11 @@ def _prompt_second_instance(app_title: str) -> bool:
 
 
 def main():
+    try:
+        import truststore
+        truststore.inject_into_ssl()
+    except Exception:
+        pass
     if not _acquire_single_instance("JDE_SimpleSFTPServer_SingleInstance"):
         if not _prompt_second_instance("Simple SFTP Server"):
             sys.exit(0)
