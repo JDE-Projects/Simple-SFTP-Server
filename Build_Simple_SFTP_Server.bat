@@ -52,7 +52,6 @@ if exist "Simple SFTP Server.spec" del /q "Simple SFTP Server.spec"
 echo [2/3] Building standalone app (--onedir) ... this may take a few minutes.
 python -m PyInstaller --noconfirm --onedir --windowed --name "Simple SFTP Server" ^
     --icon "simple_sftp_server.ico" ^
-    --splash "simple_sftp_server-splash.png" ^
     --add-data "simple_sftp_server-UI.html;." ^
     --add-data "simple_sftp_server.png;." ^
     --add-data "fonts;fonts" ^
