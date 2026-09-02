@@ -499,7 +499,8 @@ async function onStop(){
         setBusy(false);
         pwShown=false;
         if(r.status)applyStatus(r.status);
-        toast(deleteFolder?"Quick Start stopped and share folder deleted.":"Quick Start stopped.");
+        if(r.warning)toast(r.warning,"warn");
+        else toast(deleteFolder?"Quick Start stopped and share folder deleted.":"Quick Start stopped.");
       });
   } else {
     // Regular server stop: confirm only
@@ -789,7 +790,11 @@ function confirmDeleteUser(u){
   $("cfText").textContent=`Remove "${u.username}"? Their login will be deleted.`;
   $("cfFolderRow").style.display="block";
   $("cfSimpleRow").style.display="none";
-  $("cfFolderLabel").textContent=home?"User folder: "+home:"";
+  if(home&&!u.managed_folder){
+    $("cfFolderLabel").textContent="User folder: "+home+". This app did not create this folder. Deleting it removes it and everything inside, permanently.";
+  }else{
+    $("cfFolderLabel").textContent=home?"User folder: "+home:"";
+  }
   $("confirmModal").classList.add("show");
   $("cfKeep").textContent="Keep folder & files";
   $("cfDelete").textContent="Also delete folder";

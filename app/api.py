@@ -16,6 +16,7 @@ from app.services.keygen import generate_keypair as _generate_keypair
 from app.services.network import lan_ip, port_is_free, public_ip
 from app.services.passwords import generate_password, hash_password
 from app.services.prefs import load_prefs, save_prefs
+from app.services.safety import blocked_reason
 from app.services.updates import check_update as _check_update
 from app.services.usernames import validate_username
 
@@ -30,6 +31,10 @@ class Api:
         self._new_password = ""
         self._firewall_state = None
         self._cfg_lock = threading.Lock()
+        # Paths created by make_share_folder (or Quick Start) during this run,
+        # normalized. Only these are ever eligible to be offered for recursive
+        # folder deletion later; this is tracking only, no deletion here.
+        self._app_created_shares = set()
 
     def set_window(self, w):
         self._window = w
@@ -121,7 +126,8 @@ class Api:
                         "permissions": perms_for(u),
                         "auth": u.get("auth", "password"),
                         "has_password": bool(u.get("password_hash")),
-                        "key_count": len(u.get("authorized_keys", []))})
+                        "key_count": len(u.get("authorized_keys", [])),
+                        "managed_folder": bool(u.get("managed_folder"))})
         return out
 
     def find_user(self, username):
@@ -153,7 +159,15 @@ class Api:
             return {"ok": False, "error": msg}
         path = os.path.join(paths.exe_dir(), f"{username}-share")
         try:
-            os.makedirs(path, exist_ok=True)
+            # Only a folder this call actually creates is app-managed. If it
+            # already exists, it may be a folder from an earlier user, or one
+            # someone placed there by hand, so it must not be marked managed
+            # (safety: only app-created folders may later be offered for
+            # recursive deletion).
+            if os.path.isdir(path):
+                return {"ok": True, "path": path}
+            os.makedirs(path)
+            self._app_created_shares.add(os.path.normcase(os.path.abspath(path)))
             return {"ok": True, "path": path}
         except Exception as e:
             return {"ok": False, "error": friendly_error(e)}
@@ -205,6 +219,10 @@ class Api:
                 if u.get("username") == username and username != (original or ""):
                     return {"ok": False, "error": "A user with that name already exists."}
             existing = next((u for u in users if u.get("username") == (original or username)), None)
+            # Capture the prior home and managed state before rec (which may
+            # be the same dict as existing) gets overwritten below.
+            prev_home = existing.get("home", "") if existing else ""
+            prev_managed = bool(existing.get("managed_folder")) if existing else False
             rec = existing or {}
             rec["username"] = username
             rec["home"] = home
@@ -213,6 +231,20 @@ class Api:
             # remove legacy fields if present
             rec.pop("access", None)
             rec.pop("allow_delete", None)
+            # A folder only counts as managed if it was actually created by
+            # make_share_folder (or Quick Start), never just because save_user
+            # happened to create a missing, manually typed path above. This
+            # keeps recursive deletion, offered later, limited to folders the
+            # app is sure it made.
+            home_key = os.path.normcase(os.path.abspath(home))
+            managed = home_key in self._app_created_shares
+            if not managed and prev_managed and \
+                    os.path.normcase(os.path.abspath(prev_home)) == home_key:
+                managed = True
+            if managed:
+                rec["managed_folder"] = True
+            else:
+                rec.pop("managed_folder", None)
             plain = p.get("password") or ""
             if auth in ("password", "both"):
                 if plain:
@@ -260,12 +292,18 @@ class Api:
         if delete_folder and user_rec:
             home = user_rec.get("home", "")
             if home and os.path.isdir(home):
-                try:
-                    shutil.rmtree(home)
-                    debug.log("user folder deleted", home)
-                except Exception as e:
-                    debug.log("user folder delete failed", str(e))
-                    warning = "The user was removed but their folder could not be deleted: " + friendly_error(e)
+                reason = blocked_reason(home)
+                if reason is not None:
+                    debug.log("user folder delete blocked", {"home": home, "reason": reason})
+                    warning = ("The user was removed. Their folder was kept because it is " +
+                               reason + " and cannot be deleted by the app.")
+                else:
+                    try:
+                        shutil.rmtree(home)
+                        debug.log("user folder deleted", home)
+                    except Exception as e:
+                        debug.log("user folder delete failed", str(e))
+                        warning = "The user was removed but their folder could not be deleted: " + friendly_error(e)
         result = {"ok": True, "users": self._public_users(cfg)}
         if warning:
             result["warning"] = warning
@@ -320,13 +358,30 @@ class Api:
         self._firewall_state = None
         self._quick_user = None
         self._quick_password = ""
+        warning = None
         if delete_folder and was_quick and quick_folder and os.path.isdir(quick_folder):
-            try:
-                shutil.rmtree(quick_folder)
-                debug.log("quick folder deleted", quick_folder)
-            except Exception as e:
-                debug.log("quick folder delete failed", str(e))
-        return {"ok": True, "status": self.status_payload()}
+            reason = blocked_reason(quick_folder)
+            if reason is not None:
+                debug.log("quick folder delete blocked", {"folder": quick_folder, "reason": reason})
+                warning = ("The Quick Start share folder was kept because it is " +
+                           reason + " and cannot be deleted by the app.")
+            else:
+                try:
+                    shutil.rmtree(quick_folder)
+                except Exception as e:
+                    debug.log("quick folder delete failed", str(e))
+                    warning = "The Quick Start share folder could not be deleted: " + friendly_error(e)
+                else:
+                    if os.path.isdir(quick_folder):
+                        debug.log("quick folder delete incomplete", quick_folder)
+                        warning = ("The Quick Start share folder could not be fully removed. "
+                                   "Some files may remain; please delete it by hand.")
+                    else:
+                        debug.log("quick folder deleted", quick_folder)
+        result = {"ok": True, "status": self.status_payload()}
+        if warning:
+            result["warning"] = warning
+        return result
 
     def quick_start(self):
         if self.service.running:
@@ -339,7 +394,8 @@ class Api:
         self._quick_user = {"username": "quickstart", "home": paths.QUICK_FOLDER,
                             "permissions": QUICK_PERMISSIONS,
                             "auth": "password",
-                            "password_hash": hash_password(self._quick_password)}
+                            "password_hash": hash_password(self._quick_password),
+                            "managed_folder": True}
         cfg = self._load_config()
         port = int(cfg.get("settings", {}).get("port", DEFAULT_PORT))
         r = self.service.start(port, quick=True)
