@@ -184,6 +184,8 @@ class JailedSFTP(paramiko.SFTPServerInterface):
         return None
 
     def list_folder(self, path):
+        if self.service:
+            self.service.note_op(self.sid, "listing folder", path, count_key="lists")
         if not self.perm["list"]:
             return paramiko.SFTP_PERMISSION_DENIED
         real = self._real(path)
@@ -203,6 +205,8 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             return paramiko.SFTPServer.convert_errno(e.errno)
 
     def stat(self, path):
+        if self.service:
+            self.service.note_op(self.sid, "reading file details", path, count_key="stats")
         real = self._real(path)
         if real is None:
             return paramiko.SFTP_PERMISSION_DENIED
@@ -212,6 +216,8 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             return paramiko.SFTPServer.convert_errno(e.errno)
 
     def lstat(self, path):
+        if self.service:
+            self.service.note_op(self.sid, "reading file details", path, count_key="stats")
         real = self._real(path)
         if real is None:
             return paramiko.SFTP_PERMISSION_DENIED
@@ -255,6 +261,8 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             os.close(fd)
             return paramiko.SFTPServer.convert_errno(e.errno)
         direction = "download" if (reading and not writing) else "upload"
+        if self.service:
+            self.service.note_op(self.sid, "downloading" if direction == "download" else "uploading", path)
         total = None
         if direction == "download":
             try:
@@ -275,6 +283,8 @@ class JailedSFTP(paramiko.SFTPServerInterface):
         return handle
 
     def remove(self, path):
+        if self.service:
+            self.service.note_op(self.sid, "deleting", path)
         if not self.perm["delete"]:
             return paramiko.SFTP_PERMISSION_DENIED
         real = self._real(path)
@@ -289,6 +299,8 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             return paramiko.SFTPServer.convert_errno(e.errno)
 
     def rename(self, oldpath, newpath):
+        if self.service:
+            self.service.note_op(self.sid, "renaming", oldpath)
         o = self._real(oldpath)
         n = self._real(newpath)
         if o is None or n is None:
@@ -305,6 +317,8 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             return paramiko.SFTPServer.convert_errno(e.errno)
 
     def mkdir(self, path, attr):
+        if self.service:
+            self.service.note_op(self.sid, "making folder", path)
         if not self.perm["mkdir"]:
             return paramiko.SFTP_PERMISSION_DENIED
         real = self._real(path)
@@ -317,6 +331,8 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             return paramiko.SFTPServer.convert_errno(e.errno)
 
     def rmdir(self, path):
+        if self.service:
+            self.service.note_op(self.sid, "removing folder", path)
         if not self.perm["delete_dir"]:
             return paramiko.SFTP_PERMISSION_DENIED
         real = self._real(path)
@@ -422,6 +438,7 @@ class SFTPService:
         self._lock = threading.Lock()
         self._sessions = {}
         self._sid = 0
+        self._last_activity_emit = 0.0
 
     def find_user(self, username):
         return self.api.find_user(username)
@@ -516,7 +533,9 @@ class SFTPService:
                 return
             with self._lock:
                 self._sessions[sid] = {"ip": ip, "user": server.username,
-                                       "since": time.time(), "transfers": {}}
+                                       "since": time.time(), "transfers": {},
+                                       "op": "", "path": "", "lists": 0,
+                                       "stats": 0, "bytes": 0}
             debug.log("client connected", {"ip": ip, "user": server.username})
             self._emit_status()
             self.activity(sid, "connected", "")
@@ -562,7 +581,8 @@ class SFTPService:
     def _finish(self, handle):
         with self._lock:
             for sess in self._sessions.values():
-                sess["transfers"].pop(id(handle), None)
+                if sess["transfers"].pop(id(handle), None) is not None:
+                    sess["bytes"] += handle._bytes
         verb = "received" if handle._dir == "upload" else "sent"
         self.api.emit("transfer", {"name": handle._name, "dir": handle._dir,
                                    "bytes": handle._bytes, "human": human_size(handle._bytes),
@@ -574,13 +594,34 @@ class SFTPService:
         self.api.emit("activity", {"verb": verb, "name": name, "human": ""})
         self._emit_status()
 
+    def note_op(self, sid, op, path=None, count_key=None):
+        emit = False
+        with self._lock:
+            sess = self._sessions.get(sid)
+            if sess is None:
+                return
+            sess["op"] = op
+            if path is not None:
+                sess["path"] = path
+            if count_key:
+                sess[count_key] = sess.get(count_key, 0) + 1
+            now = time.time()
+            emit = (now - self._last_activity_emit) >= 1.0
+            if emit:
+                self._last_activity_emit = now
+        if emit:
+            self._emit_status()
+
     def connections(self):
         out = []
         with self._lock:
             for _sid, s in self._sessions.items():
                 out.append({"ip": s["ip"], "user": s["user"],
                             "since": int(time.time() - s["since"]),
-                            "active": len(s["transfers"])})
+                            "active": len(s["transfers"]),
+                            "op": s["op"], "path": s["path"],
+                            "lists": s["lists"], "stats": s["stats"],
+                            "bytes": s["bytes"], "human": human_size(s["bytes"])})
         return out
 
     def _emit_status(self):
