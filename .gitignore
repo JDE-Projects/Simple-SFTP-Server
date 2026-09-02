@@ -29,7 +29,8 @@ Debug_Log_*.txt
 *.pref
 
 # Local planning notes (kept private, not shared)
-roadmap.md
-status.md
-needs-fixed.md
 BLUEPRINT.md
+STATUS.md
+ROADMAP.md
+NEEDS-FIXED.md
+design-notes.md
