@@ -28,8 +28,10 @@ If you enjoyed this project and would like to buy me a coffee, check out my [Ko-
   or RSA-4096 key generator for users who have none.
 - Connection card: LAN address, on-demand public IP, port, and the host-key
   fingerprint, all copyable for first-connection verification.
-- Live panel: connected clients, in-flight transfers, a recent-activity feed,
-  and locked-out IPs with one-click Unlock.
+- Live panel: connected clients with what each one is doing right now (listing a
+  folder, reading file details, transferring), running request counts and bytes
+  moved, in-flight transfers, a recent-activity feed, and locked-out IPs with
+  one-click Unlock.
 - Brute-force lockout: five failed logins from an address are blocked for
   fifteen minutes, with a manual override.
 - Default port 2222 (no admin needed), with a plain-language message if a port
