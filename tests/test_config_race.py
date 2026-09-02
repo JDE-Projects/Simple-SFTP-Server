@@ -6,17 +6,19 @@ them. This proves both deletions persist when they race."""
 import json
 import threading
 
-import simple_sftp_server as app
+from app import paths
+from app.api import Api
+from app.constants import DEFAULT_PORT
 
 
 def _api(tmp_path, monkeypatch):
-    monkeypatch.setattr(app, "CONFIG_FILE", str(tmp_path / "server_config.json"))
-    return app.Api()
+    monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
+    return Api()
 
 
 def test_concurrent_delete_user_does_not_lose_a_deletion(tmp_path, monkeypatch):
     api = _api(tmp_path, monkeypatch)
-    seed = {"settings": {"port": app.DEFAULT_PORT},
+    seed = {"settings": {"port": DEFAULT_PORT},
             "users": [{"username": "alice", "home": str(tmp_path / "alice")},
                       {"username": "bob", "home": str(tmp_path / "bob")}]}
     assert api._save_config(seed)
@@ -55,7 +57,7 @@ def test_concurrent_delete_user_does_not_lose_a_deletion(tmp_path, monkeypatch):
     assert results.get("alice", {}).get("ok") is True
     assert results.get("bob", {}).get("ok") is True
 
-    with open(app.CONFIG_FILE, "r", encoding="utf-8") as f:
+    with open(paths.CONFIG_FILE, "r", encoding="utf-8") as f:
         on_disk = json.load(f)
     usernames = {u.get("username") for u in on_disk.get("users", [])}
     assert usernames == set()
