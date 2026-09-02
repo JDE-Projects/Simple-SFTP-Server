@@ -39,8 +39,10 @@ class Api:
             try:
                 self._window.evaluate_js(
                     f"window.appEvent && window.appEvent({json.dumps(event)},{json.dumps(payload)})")
-            except Exception:
-                pass
+            except Exception as e:
+                # Never let a failed UI push crash a worker thread, but leave a
+                # trace when debug logging is on instead of vanishing silently.
+                debug.log("emit failed", {"event": event, "error": str(e)})
 
     def get_meta(self):
         cfg = self._load_config()

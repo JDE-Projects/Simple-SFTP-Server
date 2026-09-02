@@ -583,6 +583,8 @@ function clearConnDetails(){
   const note=$("accessNote");
   note.textContent="Stopped"; note.className="badge gray";
   $("fwBanner").classList.remove("show");
+  // Reset the transfer bar: a stop mid-transfer no longer pushes a final "Idle".
+  $("xName").textContent="Idle";$("xFill").style.width="0%";$("xMeta").textContent="";
 }
 
 function applyStatus(s){
@@ -655,11 +657,17 @@ function onTransfer(p){
 }
 
 function onActivity(p){
+  // The server now coalesces activity into a batch (a list) per timer tick.
+  // Tolerate a single item too, in case of any out-of-order push.
+  const items=Array.isArray(p)?p:[p];
+  if(!items.length)return;
   const f=$("actFeed");const e=f.querySelector(".empty");if(e)e.remove();
-  const d=document.createElement("div");d.className="row";
   const t=new Date().toTimeString().slice(0,8);
-  d.innerHTML=`<b>${esc(p.verb)}</b> ${esc(p.name)}`+(p.human?` <span style="color:var(--text-faint)">(${esc(p.human)})</span>`:"")+` <span style="color:var(--text-faint);float:right">${t}</span>`;
-  f.insertBefore(d,f.firstChild);
+  for(const it of items){
+    const d=document.createElement("div");d.className="row";
+    d.innerHTML=`<b>${esc(it.verb)}</b> ${esc(it.name)}`+(it.human?` <span style="color:var(--text-faint)">(${esc(it.human)})</span>`:"")+` <span style="color:var(--text-faint);float:right">${t}</span>`;
+    f.insertBefore(d,f.firstChild);
+  }
   while(f.children.length>40)f.removeChild(f.lastChild);
 }
 

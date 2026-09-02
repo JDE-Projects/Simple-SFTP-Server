@@ -13,6 +13,13 @@ from app.services.hostkey import load_or_create_host_key
 from app.services.passwords import _DUMMY_PASSWORD_HASH, verify_password
 
 
+# How often the live view is refreshed. All per-file state is recorded in memory
+# by the transfer threads and pushed to the window from one timer at this rate,
+# so UI push volume stays bounded no matter how many files a client moves.
+PUMP_INTERVAL = 0.25   # seconds between coalesced UI pushes (about 4 per second)
+ACTIVITY_MAX = 40      # the window keeps only the last 40 activity lines
+
+
 # ───────────── lockout ─────────────
 class Lockout:
     def __init__(self):
@@ -438,7 +445,13 @@ class SFTPService:
         self._lock = threading.Lock()
         self._sessions = {}
         self._sid = 0
-        self._last_activity_emit = 0.0
+        # Coalescing pump state, all guarded by self._lock. Transfer threads only
+        # record here; the pump thread reads and pushes to the window.
+        self._pending_activity = []      # activity lines not yet flushed
+        self._latest_transfer = None     # newest progress snapshot for the bar
+        self._transfer_dirty = False     # a new transfer snapshot is waiting
+        self._status_dirty = False       # a status push is waiting
+        self._pump_thread = None
 
     def find_user(self, username):
         return self.api.find_user(username)
@@ -464,6 +477,8 @@ class SFTPService:
         self._stop.clear()
         self._accept_thread = threading.Thread(target=self._accept_loop, daemon=True)
         self._accept_thread.start()
+        self._pump_thread = threading.Thread(target=self._pump_loop, daemon=True)
+        self._pump_thread.start()
         debug.log("SERVER start", {"port": port, "quick": quick})
         return {"ok": True, "port": port}
 
@@ -478,6 +493,11 @@ class SFTPService:
         self.sock = None
         with self._lock:
             self._sessions.clear()
+            # Drop any buffered live-view state so a restart starts clean.
+            self._pending_activity = []
+            self._latest_transfer = None
+            self._transfer_dirty = False
+            self._status_dirty = False
         debug.log("SERVER stop")
         return {"ok": True}
 
@@ -537,7 +557,6 @@ class SFTPService:
                                        "op": "", "path": "", "lists": 0,
                                        "stats": 0, "bytes": 0}
             debug.log("client connected", {"ip": ip, "user": server.username})
-            self._emit_status()
             self.activity(sid, "connected", "")
             while t.is_active() and not self._stop.is_set():
                 time.sleep(0.5)
@@ -567,6 +586,9 @@ class SFTPService:
                 sess["transfers"][id(handle)] = handle
 
     def _progress(self, handle):
+        # Called on every read/write chunk. Record the newest progress snapshot
+        # only; the pump decides when to push it. Keep the cheap per-handle
+        # throttle so a fast transfer does not thrash the shared state.
         now = time.time()
         if now - handle._last_emit < 0.3:
             return
@@ -574,28 +596,36 @@ class SFTPService:
         pct = None
         if handle._total:
             pct = min(100, int(handle._bytes * 100 / handle._total))
-        self.api.emit("transfer", {"name": handle._name, "dir": handle._dir,
-                                   "bytes": handle._bytes, "human": human_size(handle._bytes),
-                                   "pct": pct, "active": True})
+        snap = {"name": handle._name, "dir": handle._dir,
+                "bytes": handle._bytes, "human": human_size(handle._bytes),
+                "pct": pct, "active": True}
+        with self._lock:
+            self._latest_transfer = snap
+            self._transfer_dirty = True
+            self._status_dirty = True
 
     def _finish(self, handle):
+        verb = "received" if handle._dir == "upload" else "sent"
+        snap = {"name": handle._name, "dir": handle._dir,
+                "bytes": handle._bytes, "human": human_size(handle._bytes),
+                "pct": 100, "active": False}
+        item = {"verb": verb, "name": handle._name, "human": human_size(handle._bytes)}
         with self._lock:
             for sess in self._sessions.values():
                 if sess["transfers"].pop(id(handle), None) is not None:
                     sess["bytes"] += handle._bytes
-        verb = "received" if handle._dir == "upload" else "sent"
-        self.api.emit("transfer", {"name": handle._name, "dir": handle._dir,
-                                   "bytes": handle._bytes, "human": human_size(handle._bytes),
-                                   "pct": 100, "active": False})
-        self.api.emit("activity", {"verb": verb, "name": handle._name,
-                                   "human": human_size(handle._bytes)})
+                    break
+            self._latest_transfer = snap
+            self._transfer_dirty = True
+            self._pending_activity.append(item)
+            self._status_dirty = True
 
     def activity(self, sid, verb, name):
-        self.api.emit("activity", {"verb": verb, "name": name, "human": ""})
-        self._emit_status()
+        with self._lock:
+            self._pending_activity.append({"verb": verb, "name": name, "human": ""})
+            self._status_dirty = True
 
     def note_op(self, sid, op, path=None, count_key=None):
-        emit = False
         with self._lock:
             sess = self._sessions.get(sid)
             if sess is None:
@@ -605,12 +635,7 @@ class SFTPService:
                 sess["path"] = path
             if count_key:
                 sess[count_key] = sess.get(count_key, 0) + 1
-            now = time.time()
-            emit = (now - self._last_activity_emit) >= 1.0
-            if emit:
-                self._last_activity_emit = now
-        if emit:
-            self._emit_status()
+            self._status_dirty = True
 
     def connections(self):
         out = []
@@ -623,6 +648,33 @@ class SFTPService:
                             "lists": s["lists"], "stats": s["stats"],
                             "bytes": s["bytes"], "human": human_size(s["bytes"])})
         return out
+
+    def _pump_loop(self):
+        # One low-rate timer drives every live-view push. It sleeps on the same
+        # stop event the rest of the server uses, so Stop ends it promptly.
+        while not self._stop.is_set():
+            self._stop.wait(PUMP_INTERVAL)
+            try:
+                self._flush()
+            except Exception:
+                debug.log("live pump flush error", traceback.format_exc())
+
+    def _flush(self):
+        with self._lock:
+            acts = self._pending_activity[-ACTIVITY_MAX:] if self._pending_activity else None
+            self._pending_activity = []
+            trans = self._latest_transfer if self._transfer_dirty else None
+            had_trans = self._transfer_dirty
+            self._transfer_dirty = False
+            status = self._status_dirty
+            self._status_dirty = False
+        # At most three pushes per tick regardless of how many files moved.
+        if status:
+            self._emit_status()
+        if acts:
+            self.api.emit("activity", acts)
+        if had_trans:
+            self.api.emit("transfer", trans)
 
     def _emit_status(self):
         self.api.emit("status", self.api.status_payload())
