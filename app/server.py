@@ -718,6 +718,25 @@ class SFTPService:
         with self._lock:
             return [dict(e) for e in self._conns.values() if e["user"] == username]
 
+    def disconnect_user(self, username):
+        """Force every live connection authenticated as this user to close and
+        wait briefly for teardown, so the account's access is revoked before
+        this returns. Returns how many connections were dropped."""
+        with self._lock:
+            entries = [e for e in self._conns.values() if e["user"] == username]
+        for e in entries:
+            try:
+                e["transport"].close()
+            except Exception:
+                pass
+        deadline = time.time() + SHUTDOWN_TIMEOUT
+        for e in entries:
+            th = e.get("thread")
+            if not th or th is threading.current_thread():
+                continue
+            th.join(timeout=max(0.0, deadline - time.time()))
+        return len(entries)
+
     def _pump_loop(self):
         # One low-rate timer drives every live-view push. It sleeps on the same
         # stop event the rest of the server uses, so Stop ends it promptly.
