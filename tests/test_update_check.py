@@ -8,7 +8,7 @@ import urllib.error
 
 import pytest
 
-import simple_sftp_server as app
+from app.services.updates import _update_error_reason
 
 
 @pytest.mark.parametrize(
@@ -31,10 +31,10 @@ import simple_sftp_server as app
     ],
 )
 def test_update_error_reason_branches(exc, expected):
-    assert expected in app._update_error_reason(exc)
+    assert expected in _update_error_reason(exc)
 
 
 def test_update_error_reason_truncates_unknown_exception():
-    reason = app._update_error_reason(ValueError("x" * 200))
+    reason = _update_error_reason(ValueError("x" * 200))
     assert len(reason) == 120
     assert reason.endswith("...")

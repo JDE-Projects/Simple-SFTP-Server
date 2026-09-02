@@ -6,7 +6,7 @@ test instead, per roadmap.md."""
 
 import os
 
-from simple_sftp_server import _decide_firewall, _parse_firewall_rule, _rule_allows
+from app.services.firewall import _decide_firewall, _parse_firewall_rule, _rule_allows
 
 PORT = 2222
 APP_PATH = r"C:\Program Files\Simple SFTP Server\Simple SFTP Server.exe"

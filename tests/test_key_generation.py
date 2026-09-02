@@ -3,13 +3,13 @@
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import load_ssh_private_key
 
-import simple_sftp_server as app
+from app.api import Api
 
 
 def test_generate_encrypted_ed25519_key(tmp_path):
     private_path = tmp_path / "id_ed25519"
 
-    result = app.Api().generate_keypair(
+    result = Api().generate_keypair(
         "Ed25519", str(private_path), "test-passphrase", "fixture-user"
     )
 

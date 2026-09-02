@@ -1,7 +1,7 @@
 """Tests for _valid_geometry: pure validation of a saved window geometry dict.
 See simple_sftp_server.py, "prefs (theme + window geometry)" section."""
 
-from simple_sftp_server import _valid_geometry
+from app.services.prefs import _valid_geometry
 
 
 def test_valid_dict_passes_through_unchanged():
