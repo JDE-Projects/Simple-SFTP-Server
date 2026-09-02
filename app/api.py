@@ -16,6 +16,7 @@ from app.services.keygen import generate_keypair as _generate_keypair
 from app.services.network import lan_ip, port_is_free, public_ip
 from app.services.passwords import generate_password, hash_password
 from app.services.prefs import load_prefs, save_prefs
+from app.services.safety import blocked_reason
 from app.services.updates import check_update as _check_update
 from app.services.usernames import validate_username
 
@@ -291,12 +292,18 @@ class Api:
         if delete_folder and user_rec:
             home = user_rec.get("home", "")
             if home and os.path.isdir(home):
-                try:
-                    shutil.rmtree(home)
-                    debug.log("user folder deleted", home)
-                except Exception as e:
-                    debug.log("user folder delete failed", str(e))
-                    warning = "The user was removed but their folder could not be deleted: " + friendly_error(e)
+                reason = blocked_reason(home)
+                if reason is not None:
+                    debug.log("user folder delete blocked", {"home": home, "reason": reason})
+                    warning = ("The user was removed. Their folder was kept because it is " +
+                               reason + " and cannot be deleted by the app.")
+                else:
+                    try:
+                        shutil.rmtree(home)
+                        debug.log("user folder deleted", home)
+                    except Exception as e:
+                        debug.log("user folder delete failed", str(e))
+                        warning = "The user was removed but their folder could not be deleted: " + friendly_error(e)
         result = {"ok": True, "users": self._public_users(cfg)}
         if warning:
             result["warning"] = warning
