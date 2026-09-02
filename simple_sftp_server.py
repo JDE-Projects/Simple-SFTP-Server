@@ -875,6 +875,12 @@ class SFTPService:
             server = ServerIface(self, ip, sid)
             server.service = self
             t.start_server(server=server)
+            # Ping the client every 15s. If the link dies silently (a network
+            # blip, a NAT/router timeout) the send fails, paramiko marks the
+            # transport inactive, and the loop below drops the session. Without
+            # this, dead sessions linger in the Live list until the OS TCP
+            # timeout hours later, and reconnects pile up as ghost entries.
+            t.set_keepalive(15)
             deadline = time.time() + 30
             chan = None
             while time.time() < deadline and not self._stop.is_set():
