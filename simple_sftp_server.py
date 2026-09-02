@@ -43,7 +43,7 @@ import urllib.error
 import paramiko
 import bcrypt
 
-APP_VERSION = "1.4.3"
+APP_VERSION = "1.4.4"
 GITHUB_REPO = "JDE-Projects/Simple-SFTP-Server"
 DEFAULT_PORT = 2222
 
