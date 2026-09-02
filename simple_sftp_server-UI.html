@@ -176,7 +176,7 @@
 
   #toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--panel-2);border:1px solid var(--border-2);
     color:var(--text);padding:10px 16px;border-radius:9px;font-size:12px;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;
-    box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:90;max-width:70%;} #toast.show{opacity:1;transform:translateX(-50%) translateY(0);} #toast.err{border-color:var(--red);}
+    box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:90;max-width:70%;} #toast.show{opacity:1;transform:translateX(-50%) translateY(0);} #toast.err{border-color:var(--red);} #toast.warn{border-color:var(--amber);}
   .theme-btn{background:transparent;border:1px solid var(--border-2);border-radius:var(--radius-sm);width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-dim);transition:.15s;flex:0 0 auto;}
   .theme-btn:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px);}
   .theme-btn svg{width:18px;height:18px;}
@@ -242,6 +242,7 @@
       <div class="panel card-pane" id="connCard" style="flex:0 0 auto">
         <div class="pane-head"><div class="pane-title">Connection Details<span class="grow"></span><span id="accessNote" class="badge gray">Stopped</span></div></div>
         <div class="pane-body pad">
+          <div id="cfgBanner" class="fw-banner"><span id="cfgBannerText"></span></div>
           <div id="fwBanner" class="fw-banner">
             <span>Server is running, but Windows Firewall may be blocking connections from other devices on
             port <span id="fwPort">2222</span>. An administrator can allow it in Windows Defender Firewall.
@@ -384,11 +385,11 @@
 const $=id=>document.getElementById(id);
 let API=null, meta=null, running=false, isQuick=false;
 let users=[], editingOriginal=null, authMode="password";
-let cur=null, curAt=0, pwShown=false, lastPubKey="";
+let cur=null, curAt=0, pwShown=false;
 let pollTimer=null, tickTimer=null;
 let umPwVisible=false;
 
-function toast(m,e){const t=$("toast");t.textContent=m;t.className=(e?"err ":"")+"show";setTimeout(()=>t.className=t.className.replace("show","").trim(),3400);}
+function toast(m,lvl){const t=$("toast");t.textContent=m;const c=(lvl===true||lvl==="err")?"err ":(lvl==="warn")?"warn ":"";t.className=c+"show";setTimeout(()=>t.className=t.className.replace("show","").trim(),3400);}
 function copyText(s){if(navigator.clipboard)navigator.clipboard.writeText(s);}
 
 function dur(s){s=Math.max(0,s|0);const m=Math.floor(s/60),h=Math.floor(m/60);
@@ -428,6 +429,7 @@ async function init(){
   $("port").value=(meta.settings&&meta.settings.port)||meta.default_port||2222;
   const kg=$("kgType"); meta.key_types.forEach(t=>{const o=document.createElement("option");o.value=t;o.textContent=t;kg.appendChild(o);});
   users=meta.users||[]; renderUsers();
+  if(meta.config_warning){$("cfgBannerText").textContent=meta.config_warning;$("cfgBanner").classList.add("show");}
 
   $("startBtn").onclick=onStart;
   $("stopBtn").onclick=onStop;
@@ -450,9 +452,6 @@ async function init(){
   document.querySelectorAll("#umAuth button").forEach(b=>b.onclick=()=>setAuth(b.dataset.v));
   $("umSave").onclick=onSaveUser;
   $("umKeygen").onclick=openKeygen;
-
-  // delete permission auto-enables overwrite; wire it up
-  $("pDelete").addEventListener("change",()=>{});
 
   $("kgBrowse").onclick=async()=>{const sug=$("kgType").value.startsWith("Ed25519")?"id_ed25519":"id_rsa";const p=await API.browse_save_key(sug);if(p)$("kgPath").value=p;};
   $("kgClose").onclick=()=>$("keygenModal").classList.remove("show");
@@ -783,12 +782,16 @@ function confirmDeleteUser(u){
   $("cfKeep").onclick=async()=>{
     $("confirmModal").classList.remove("show");
     const r=await API.delete_user(u.username,false);
-    users=r.users;renderUsers();toast("User deleted.");
+    if(!r.ok){toast(r.error||"Could not delete the user.",true);return;}
+    users=r.users;renderUsers();
+    toast(r.warning||"User deleted.",r.warning?"warn":false);
   };
   $("cfDelete").onclick=async()=>{
     $("confirmModal").classList.remove("show");
     const r=await API.delete_user(u.username,true);
-    users=r.users;renderUsers();toast("User and folder deleted.");
+    if(!r.ok){toast(r.error||"Could not delete the user.",true);return;}
+    users=r.users;renderUsers();
+    toast(r.warning||"User and folder deleted.",r.warning?"warn":false);
   };
 }
 
@@ -805,7 +808,6 @@ async function onKeygen(){
   const r=await API.generate_keypair($("kgType").value,path,$("kgPass").value,$("umUser").value.trim());
   $("kgGo").disabled=false;
   if(!r.ok){toast(r.error||"Key generation failed.",true);return;}
-  lastPubKey=r.public;
   $("kgPub").textContent=r.public;
   $("kgSaved").textContent="Saved private key to "+r.private_path+" (and .pub beside it).";
   $("kgResult").style.display="block";

@@ -35,7 +35,7 @@ import threading
 import traceback
 import shutil
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 import urllib.error
 
@@ -187,6 +187,13 @@ def verify_password(plain, hashed):
         return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("ascii"))
     except Exception:
         return False
+
+
+# A precomputed bcrypt hash of a throwaway string, used only to burn roughly
+# the same amount of time as a real password check when the username doesn't
+# exist (or has no password set), so login failures don't leak which
+# usernames are valid through response timing.
+_DUMMY_PASSWORD_HASH = hash_password("simple-sftp-server-dummy-check")
 
 
 # ───────────── usernames ─────────────
@@ -546,10 +553,15 @@ class JailedSFTP(paramiko.SFTPServerInterface):
         self.ip = getattr(server, "ip", "")
         self.sid = getattr(server, "sid", "")
         home = (self.user or {}).get("home", "")
-        try:
-            self.root = os.path.realpath(home)
-        except Exception:
-            self.root = home
+        if home:
+            try:
+                self.root = os.path.realpath(home)
+            except Exception:
+                self.root = home
+        else:
+            # No home configured: fail closed rather than letting
+            # os.path.realpath("") resolve to the current working directory.
+            self.root = None
         self.perm = perms_for(self.user) if self.user else dict(DEFAULT_PERMISSIONS)
 
     def _progress(self, handle):
@@ -561,6 +573,8 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             self.service._finish(handle)
 
     def _real(self, path):
+        if not self.root:
+            return None
         p = path.replace("\\", "/")
         while p.startswith("/"):
             p = p[1:]
@@ -638,6 +652,7 @@ class JailedSFTP(paramiko.SFTPServerInterface):
         try:
             f = os.fdopen(fd, fstr)
         except OSError as e:
+            os.close(fd)
             return paramiko.SFTPServer.convert_errno(e.errno)
         direction = "download" if (reading and not writing) else "upload"
         total = None
@@ -739,10 +754,16 @@ class ServerIface(paramiko.ServerInterface):
         if self.service.lockout.is_locked(self.ip):
             return paramiko.AUTH_FAILED
         u = self.service.find_user(username)
-        if (u and u.get("auth") in ("password", "both") and u.get("password_hash")
-                and verify_password(password, u["password_hash"])):
-            self._win(username, u)
-            return paramiko.AUTH_SUCCESSFUL
+        real_hash = u.get("password_hash") if (u and u.get("auth") in ("password", "both")) else None
+        if real_hash:
+            if verify_password(password, real_hash):
+                self._win(username, u)
+                return paramiko.AUTH_SUCCESSFUL
+        else:
+            # No real user/hash to check against: run a dummy bcrypt check
+            # anyway and discard the result, so this path takes about as
+            # long as the real one and doesn't leak valid usernames via timing.
+            verify_password(password, _DUMMY_PASSWORD_HASH)
         self.service.lockout.record_fail(self.ip)
         debug.log("auth fail (password)", {"ip": self.ip, "user": username})
         return paramiko.AUTH_FAILED
@@ -844,10 +865,13 @@ class SFTPService:
         return {"ok": True}
 
     def _accept_loop(self):
-        self.sock.settimeout(1.0)
         while not self._stop.is_set():
+            sock = self.sock
+            if sock is None:
+                break
             try:
-                conn, addr = self.sock.accept()
+                sock.settimeout(1.0)
+                conn, addr = sock.accept()
             except socket.timeout:
                 continue
             except OSError:
@@ -873,7 +897,6 @@ class SFTPService:
             t.add_server_key(self.host_key)
             t.set_subsystem_handler("sftp", paramiko.SFTPServer, JailedSFTP)
             server = ServerIface(self, ip, sid)
-            server.service = self
             t.start_server(server=server)
             # Ping the client every 15s. If the link dies silently (a network
             # blip, a NAT/router timeout) the send fails, paramiko marks the
@@ -964,6 +987,23 @@ class SFTPService:
         self.api.emit("status", self.api.status_payload())
 
 
+def _atomic_write_json(path, data, **kwargs):
+    """Write JSON to a temp file in the same folder, then swap it onto the real
+    path with os.replace(), so a crash mid-write can never leave a half-written
+    file behind. Cleans up the temp file on any failure."""
+    tmp = path + f".tmp-{os.getpid()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, **kwargs)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except Exception:
+                pass
+
+
 # ───────────── prefs (theme + window geometry) ─────────────
 def _pref_file():
     return os.path.join(exe_dir(), "simple_sftp_server.pref")
@@ -980,8 +1020,7 @@ def load_prefs():
 
 def save_prefs(prefs):
     try:
-        with open(_pref_file(), "w", encoding="utf-8") as f:
-            json.dump(prefs, f)
+        _atomic_write_json(_pref_file(), prefs)
         return True
     except Exception as e:
         debug.log("save prefs failed", str(e))
@@ -1184,9 +1223,11 @@ class Api:
 
     def get_meta(self):
         cfg = self._load_config()
+        warning = getattr(self, "_config_warning", None)
+        self._config_warning = None
         return {"version": APP_VERSION, "key_types": ["Ed25519", "RSA-4096"],
                 "default_port": DEFAULT_PORT, "settings": cfg.get("settings", {}),
-                "users": self._public_users(cfg)}
+                "users": self._public_users(cfg), "config_warning": warning}
 
     def set_debug(self, on):
         ok = debug.set_enabled(on)
@@ -1207,6 +1248,8 @@ class Api:
 
     # ---- config ----
     def _load_config(self):
+        if not os.path.exists(CONFIG_FILE):
+            return {"settings": {"port": DEFAULT_PORT}, "users": []}
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -1214,15 +1257,35 @@ class Api:
                 data.setdefault("settings", {"port": DEFAULT_PORT})
                 data.setdefault("users", [])
                 return data
-        except Exception:
-            pass
+        except Exception as e:
+            # The file exists but can't be parsed. Preserve it rather than
+            # silently discarding it: rename it aside and keep going with a
+            # fresh, empty config so the app still opens.
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            corrupt_path = os.path.join(os.path.dirname(CONFIG_FILE),
+                                         f"server_config.corrupt-{stamp}.json")
+            try:
+                os.replace(CONFIG_FILE, corrupt_path)
+                debug.log("config unreadable, moved aside", {"from": CONFIG_FILE,
+                                                               "to": corrupt_path,
+                                                               "error": str(e)})
+                self._config_warning = (
+                    "Your saved settings file could not be read. It was kept as "
+                    f"{os.path.basename(corrupt_path)} and the app started with no "
+                    "users. The original file was not deleted.")
+            except Exception as e2:
+                debug.log("config unreadable and could not be moved aside",
+                          {"path": CONFIG_FILE, "error": str(e2)})
+                self._config_warning = (
+                    "Your saved settings file could not be read and could not be "
+                    "moved aside. The app started with no users; the original file "
+                    "was left in place.")
         return {"settings": {"port": DEFAULT_PORT}, "users": []}
 
     def _save_config(self, cfg):
         try:
             cfg["_note"] = "Simple SFTP Server config. Passwords are bcrypt hashes, never plaintext."
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(cfg, f, indent=2)
+            _atomic_write_json(CONFIG_FILE, cfg, indent=2)
             return True
         except Exception as e:
             debug.log("save config failed", str(e))
@@ -1361,7 +1424,9 @@ class Api:
         cfg = self._load_config()
         user_rec = next((u for u in cfg.get("users", []) if u.get("username") == username), None)
         cfg["users"] = [u for u in cfg.get("users", []) if u.get("username") != username]
-        self._save_config(cfg)
+        if not self._save_config(cfg):
+            return {"ok": False, "error": "Could not write the config file."}
+        warning = None
         if delete_folder and user_rec:
             home = user_rec.get("home", "")
             if home and os.path.isdir(home):
@@ -1370,7 +1435,11 @@ class Api:
                     debug.log("user folder deleted", home)
                 except Exception as e:
                     debug.log("user folder delete failed", str(e))
-        return {"ok": True, "users": self._public_users(cfg)}
+                    warning = "The user was removed but their folder could not be deleted: " + friendly_error(e)
+        result = {"ok": True, "users": self._public_users(cfg)}
+        if warning:
+            result["warning"] = warning
+        return result
 
     def generate_keypair(self, key_type, out_path, passphrase, username):
         try:
