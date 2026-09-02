@@ -779,20 +779,15 @@ function confirmDeleteUser(u){
   $("confirmModal").classList.add("show");
   $("cfKeep").textContent="Keep folder & files";
   $("cfDelete").textContent="Also delete folder";
-  $("cfKeep").onclick=async()=>{
-    $("confirmModal").classList.remove("show");
-    const r=await API.delete_user(u.username,false);
-    if(!r.ok){toast(r.error||"Could not delete the user.",true);return;}
-    users=r.users;renderUsers();
-    toast(r.warning||"User deleted.",r.warning?"warn":false);
-  };
-  $("cfDelete").onclick=async()=>{
-    $("confirmModal").classList.remove("show");
-    const r=await API.delete_user(u.username,true);
-    if(!r.ok){toast(r.error||"Could not delete the user.",true);return;}
-    users=r.users;renderUsers();
-    toast(r.warning||"User and folder deleted.",r.warning?"warn":false);
-  };
+  $("cfKeep").onclick=()=>runDeleteUser(u,false,"User deleted.");
+  $("cfDelete").onclick=()=>runDeleteUser(u,true,"User and folder deleted.");
+}
+async function runDeleteUser(u,deleteFolder,okMsg){
+  $("confirmModal").classList.remove("show");
+  const r=await API.delete_user(u.username,deleteFolder);
+  if(!r.ok){toast(r.error||"Could not delete the user.",true);return;}
+  users=r.users;renderUsers();
+  toast(r.warning||okMsg,r.warning?"warn":false);
 }
 
 /* ---------- keygen ---------- */

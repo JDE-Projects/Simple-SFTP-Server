@@ -32,6 +32,7 @@ import base64
 import hashlib
 import secrets
 import threading
+import uuid
 import traceback
 import shutil
 import webbrowser
@@ -991,7 +992,7 @@ def _atomic_write_json(path, data, **kwargs):
     """Write JSON to a temp file in the same folder, then swap it onto the real
     path with os.replace(), so a crash mid-write can never leave a half-written
     file behind. Cleans up the temp file on any failure."""
-    tmp = path + f".tmp-{os.getpid()}"
+    tmp = path + f".tmp-{os.getpid()}-{uuid.uuid4().hex}"
     try:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, **kwargs)
@@ -1209,6 +1210,7 @@ class Api:
         self._quick_password = ""
         self._new_password = ""
         self._firewall_state = None
+        self._cfg_lock = threading.Lock()
 
     def set_window(self, w):
         self._window = w
@@ -1375,57 +1377,59 @@ class Api:
         if not any(permissions.values()):
             return {"ok": False, "error": "Grant the user at least one permission."}
         auth = p.get("auth", "password")
-        cfg = self._load_config()
-        users = cfg.get("users", [])
-        for u in users:
-            if u.get("username") == username and username != (original or ""):
-                return {"ok": False, "error": "A user with that name already exists."}
-        existing = next((u for u in users if u.get("username") == (original or username)), None)
-        rec = existing or {}
-        rec["username"] = username
-        rec["home"] = home
-        rec["permissions"] = permissions
-        rec["auth"] = auth
-        # remove legacy fields if present
-        rec.pop("access", None)
-        rec.pop("allow_delete", None)
-        plain = p.get("password") or ""
-        if auth in ("password", "both"):
-            if plain:
-                rec["password_hash"] = hash_password(plain)
-            elif not rec.get("password_hash"):
-                return {"ok": False, "error": "Set a password for this user (or switch to key auth)."}
-        else:
-            rec.pop("password_hash", None)
-        if auth in ("key", "both"):
-            keys = p.get("authorized_keys") or []
-            cleaned = []
-            for k in keys:
-                k = (k or "").strip()
-                if k and len(k.split()) >= 2 and k.split()[0].startswith(("ssh-", "ecdsa-")):
-                    cleaned.append(k)
-            if not cleaned and not rec.get("authorized_keys"):
-                return {"ok": False, "error": "Add at least one public key (or switch to password auth)."}
-            if cleaned:
-                rec["authorized_keys"] = cleaned
-        else:
-            rec.pop("authorized_keys", None)
-        if existing is None:
-            users.append(rec)
-        users.sort(key=lambda x: x.get("username", "").lower())
-        cfg["users"] = users
-        self._new_password = ""
-        if not self._save_config(cfg):
-            return {"ok": False, "error": "Could not write the config file."}
+        with self._cfg_lock:
+            cfg = self._load_config()
+            users = cfg.get("users", [])
+            for u in users:
+                if u.get("username") == username and username != (original or ""):
+                    return {"ok": False, "error": "A user with that name already exists."}
+            existing = next((u for u in users if u.get("username") == (original or username)), None)
+            rec = existing or {}
+            rec["username"] = username
+            rec["home"] = home
+            rec["permissions"] = permissions
+            rec["auth"] = auth
+            # remove legacy fields if present
+            rec.pop("access", None)
+            rec.pop("allow_delete", None)
+            plain = p.get("password") or ""
+            if auth in ("password", "both"):
+                if plain:
+                    rec["password_hash"] = hash_password(plain)
+                elif not rec.get("password_hash"):
+                    return {"ok": False, "error": "Set a password for this user (or switch to key auth)."}
+            else:
+                rec.pop("password_hash", None)
+            if auth in ("key", "both"):
+                keys = p.get("authorized_keys") or []
+                cleaned = []
+                for k in keys:
+                    k = (k or "").strip()
+                    if k and len(k.split()) >= 2 and k.split()[0].startswith(("ssh-", "ecdsa-")):
+                        cleaned.append(k)
+                if not cleaned and not rec.get("authorized_keys"):
+                    return {"ok": False, "error": "Add at least one public key (or switch to password auth)."}
+                if cleaned:
+                    rec["authorized_keys"] = cleaned
+            else:
+                rec.pop("authorized_keys", None)
+            if existing is None:
+                users.append(rec)
+            users.sort(key=lambda x: x.get("username", "").lower())
+            cfg["users"] = users
+            self._new_password = ""
+            if not self._save_config(cfg):
+                return {"ok": False, "error": "Could not write the config file."}
         debug.log("user saved", {"user": username, "permissions": permissions, "auth": auth})
         return {"ok": True, "users": self._public_users(cfg)}
 
     def delete_user(self, username, delete_folder=False):
-        cfg = self._load_config()
-        user_rec = next((u for u in cfg.get("users", []) if u.get("username") == username), None)
-        cfg["users"] = [u for u in cfg.get("users", []) if u.get("username") != username]
-        if not self._save_config(cfg):
-            return {"ok": False, "error": "Could not write the config file."}
+        with self._cfg_lock:
+            cfg = self._load_config()
+            user_rec = next((u for u in cfg.get("users", []) if u.get("username") == username), None)
+            cfg["users"] = [u for u in cfg.get("users", []) if u.get("username") != username]
+            if not self._save_config(cfg):
+                return {"ok": False, "error": "Could not write the config file."}
         warning = None
         if delete_folder and user_rec:
             home = user_rec.get("home", "")
@@ -1501,14 +1505,15 @@ class Api:
         threading.Thread(target=worker, daemon=True).start()
 
     def start_server(self, port):
-        cfg = self._load_config()
-        if not cfg.get("users"):
-            return {"ok": False, "error": "Add at least one user before starting (or use Quick Start)."}
-        try:
-            cfg.setdefault("settings", {})["port"] = int(port or DEFAULT_PORT)
-            self._save_config(cfg)
-        except Exception:
-            pass
+        with self._cfg_lock:
+            cfg = self._load_config()
+            if not cfg.get("users"):
+                return {"ok": False, "error": "Add at least one user before starting (or use Quick Start)."}
+            try:
+                cfg.setdefault("settings", {})["port"] = int(port or DEFAULT_PORT)
+                self._save_config(cfg)
+            except Exception:
+                pass
         use_port = int(port or DEFAULT_PORT)
         r = self.service.start(use_port, quick=False)
         if r.get("ok"):
