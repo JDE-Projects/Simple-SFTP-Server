@@ -18,6 +18,7 @@ from app.services.passwords import _DUMMY_PASSWORD_HASH, verify_password
 # so UI push volume stays bounded no matter how many files a client moves.
 PUMP_INTERVAL = 0.25   # seconds between coalesced UI pushes (about 4 per second)
 ACTIVITY_MAX = 40      # the window keeps only the last 40 activity lines
+SHUTDOWN_TIMEOUT = 5.0 # seconds Stop will wait for all threads to finish
 
 
 # ───────────── lockout ─────────────
@@ -499,13 +500,53 @@ class SFTPService:
         except Exception:
             pass
         self.sock = None
+        # One shared budget bounds the whole teardown so Stop can never hang.
+        deadline = time.time() + SHUTDOWN_TIMEOUT
+
+        def _remaining():
+            return max(0.0, deadline - time.time())
+
+        # Wait for the accept loop to exit first so no new handler threads can
+        # start while we tear the rest down.
+        accept_thread = self._accept_thread
+        if accept_thread and accept_thread is not threading.current_thread():
+            accept_thread.join(timeout=_remaining())
+        self._accept_thread = None
+        # Snapshot the live connections, then close every transport outside the
+        # lock so blocked handler threads unblock at once instead of waiting out
+        # their poll interval.
+        with self._lock:
+            entries = list(self._conns.values())
+        for e in entries:
+            try:
+                e["transport"].close()
+            except Exception:
+                pass
+        # Wait for the handler threads to finish under the shared budget.
+        for e in entries:
+            th = e.get("thread")
+            if not th or th is threading.current_thread():
+                continue
+            th.join(timeout=_remaining())
+        # Wait for the live-view pump thread too.
+        pump_thread = self._pump_thread
+        if pump_thread and pump_thread is not threading.current_thread():
+            pump_thread.join(timeout=_remaining())
+        self._pump_thread = None
+        lingering = sum(1 for e in entries
+                        if e.get("thread") and e["thread"].is_alive())
         with self._lock:
             self._sessions.clear()
+            self._conns.clear()
             # Drop any buffered live-view state so a restart starts clean.
             self._pending_activity = []
             self._latest_transfer = None
             self._transfer_dirty = False
             self._status_dirty = False
+        # The transports are already closed, so a thread that outlived the budget
+        # cannot corrupt the next run; note it but still report stopped.
+        if lingering:
+            debug.log("SERVER stop: threads still winding down", {"count": lingering})
         debug.log("SERVER stop")
         return {"ok": True}
 
