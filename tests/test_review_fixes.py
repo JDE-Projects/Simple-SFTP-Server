@@ -6,7 +6,6 @@ import json
 import os
 
 import paramiko
-import pytest
 
 import simple_sftp_server as app
 
