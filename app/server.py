@@ -18,6 +18,7 @@ from app.services.passwords import _DUMMY_PASSWORD_HASH, verify_password
 # so UI push volume stays bounded no matter how many files a client moves.
 PUMP_INTERVAL = 0.25   # seconds between coalesced UI pushes (about 4 per second)
 ACTIVITY_MAX = 40      # the window keeps only the last 40 activity lines
+SHUTDOWN_TIMEOUT = 5.0 # seconds Stop will wait for all threads to finish
 
 
 # ───────────── lockout ─────────────
@@ -445,6 +446,12 @@ class SFTPService:
         self._lock = threading.Lock()
         self._sessions = {}
         self._sid = 0
+        self._generation = 0
+        # Registry of every live Paramiko transport, including half-open
+        # handshakes that have not finished auth, keyed by sid and removed on
+        # disconnect. Later phases use this to close transports and wait for
+        # teardown.
+        self._conns = {}
         # Coalescing pump state, all guarded by self._lock. Transfer threads only
         # record here; the pump thread reads and pushes to the window.
         self._pending_activity = []      # activity lines not yet flushed
@@ -475,6 +482,8 @@ class SFTPService:
         self.is_quick = quick
         self.running = True
         self._stop.clear()
+        with self._lock:
+            self._generation += 1
         self._accept_thread = threading.Thread(target=self._accept_loop, daemon=True)
         self._accept_thread.start()
         self._pump_thread = threading.Thread(target=self._pump_loop, daemon=True)
@@ -491,13 +500,53 @@ class SFTPService:
         except Exception:
             pass
         self.sock = None
+        # One shared budget bounds the whole teardown so Stop can never hang.
+        deadline = time.time() + SHUTDOWN_TIMEOUT
+
+        def _remaining():
+            return max(0.0, deadline - time.time())
+
+        # Wait for the accept loop to exit first so no new handler threads can
+        # start while we tear the rest down.
+        accept_thread = self._accept_thread
+        if accept_thread and accept_thread is not threading.current_thread():
+            accept_thread.join(timeout=_remaining())
+        self._accept_thread = None
+        # Snapshot the live connections, then close every transport outside the
+        # lock so blocked handler threads unblock at once instead of waiting out
+        # their poll interval.
+        with self._lock:
+            entries = list(self._conns.values())
+        for e in entries:
+            try:
+                e["transport"].close()
+            except Exception:
+                pass
+        # Wait for the handler threads to finish under the shared budget.
+        for e in entries:
+            th = e.get("thread")
+            if not th or th is threading.current_thread():
+                continue
+            th.join(timeout=_remaining())
+        # Wait for the live-view pump thread too.
+        pump_thread = self._pump_thread
+        if pump_thread and pump_thread is not threading.current_thread():
+            pump_thread.join(timeout=_remaining())
+        self._pump_thread = None
+        lingering = sum(1 for e in entries
+                        if e.get("thread") and e["thread"].is_alive())
         with self._lock:
             self._sessions.clear()
+            self._conns.clear()
             # Drop any buffered live-view state so a restart starts clean.
             self._pending_activity = []
             self._latest_transfer = None
             self._transfer_dirty = False
             self._status_dirty = False
+        # The transports are already closed, so a thread that outlived the budget
+        # cannot corrupt the next run; note it but still report stopped.
+        if lingering:
+            debug.log("SERVER stop: threads still winding down", {"count": lingering})
         debug.log("SERVER stop")
         return {"ok": True}
 
@@ -527,9 +576,13 @@ class SFTPService:
         with self._lock:
             self._sid += 1
             sid = self._sid
+            gen = self._generation
         t = None
         try:
             t = paramiko.Transport(conn, disabled_algorithms=DISABLED_ALGORITHMS)
+            with self._lock:
+                self._conns[sid] = {"transport": t, "thread": threading.current_thread(),
+                                    "gen": gen, "ip": ip, "user": ""}
             t.local_version = "SSH-2.0-SimpleSFTPServer"
             t.add_server_key(self.host_key)
             t.set_subsystem_handler("sftp", paramiko.SFTPServer, JailedSFTP)
@@ -556,6 +609,8 @@ class SFTPService:
                                        "since": time.time(), "transfers": {},
                                        "op": "", "path": "", "lists": 0,
                                        "stats": 0, "bytes": 0}
+                if sid in self._conns:
+                    self._conns[sid]["user"] = server.username
             debug.log("client connected", {"ip": ip, "user": server.username})
             self.activity(sid, "connected", "")
             while t.is_active() and not self._stop.is_set():
@@ -575,6 +630,7 @@ class SFTPService:
                 if sid in self._sessions:
                     existed = True
                     self._sessions.pop(sid, None)
+                self._conns.pop(sid, None)
             if existed:
                 debug.log("client disconnected", {"ip": ip})
                 self._emit_status()
@@ -648,6 +704,38 @@ class SFTPService:
                             "lists": s["lists"], "stats": s["stats"],
                             "bytes": s["bytes"], "human": human_size(s["bytes"])})
         return out
+
+    def active_conns(self, generation=None):
+        """Snapshot of tracked connection entries, optionally only those from
+        the given server generation. Entries reference live transport/thread
+        objects for later phases to act on."""
+        with self._lock:
+            return [dict(e) for e in self._conns.values()
+                    if generation is None or e["gen"] == generation]
+
+    def conns_for_user(self, username):
+        """Snapshot of tracked connection entries for one authenticated user."""
+        with self._lock:
+            return [dict(e) for e in self._conns.values() if e["user"] == username]
+
+    def disconnect_user(self, username):
+        """Force every live connection authenticated as this user to close and
+        wait briefly for teardown, so the account's access is revoked before
+        this returns. Returns how many connections were dropped."""
+        with self._lock:
+            entries = [e for e in self._conns.values() if e["user"] == username]
+        for e in entries:
+            try:
+                e["transport"].close()
+            except Exception:
+                pass
+        deadline = time.time() + SHUTDOWN_TIMEOUT
+        for e in entries:
+            th = e.get("thread")
+            if not th or th is threading.current_thread():
+                continue
+            th.join(timeout=max(0.0, deadline - time.time()))
+        return len(entries)
 
     def _pump_loop(self):
         # One low-rate timer drives every live-view push. It sleeps on the same

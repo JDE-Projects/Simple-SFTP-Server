@@ -242,6 +242,10 @@ class Api:
             if not self._save_config(cfg):
                 return {"ok": False, "error": "Could not write the config file."}
         debug.log("user saved", {"user": username, "permissions": permissions, "auth": auth})
+        if existing is not None:
+            for nm in {original or username, username}:
+                if nm:
+                    self.service.disconnect_user(nm)
         return {"ok": True, "users": self._public_users(cfg)}
 
     def delete_user(self, username, delete_folder=False):
@@ -251,6 +255,7 @@ class Api:
             cfg["users"] = [u for u in cfg.get("users", []) if u.get("username") != username]
             if not self._save_config(cfg):
                 return {"ok": False, "error": "Could not write the config file."}
+        self.service.disconnect_user(username)
         warning = None
         if delete_folder and user_rec:
             home = user_rec.get("home", "")
