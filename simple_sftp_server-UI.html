@@ -499,7 +499,8 @@ async function onStop(){
         setBusy(false);
         pwShown=false;
         if(r.status)applyStatus(r.status);
-        toast(deleteFolder?"Quick Start stopped and share folder deleted.":"Quick Start stopped.");
+        if(r.warning)toast(r.warning,"warn");
+        else toast(deleteFolder?"Quick Start stopped and share folder deleted.":"Quick Start stopped.");
       });
   } else {
     // Regular server stop: confirm only

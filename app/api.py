@@ -358,13 +358,30 @@ class Api:
         self._firewall_state = None
         self._quick_user = None
         self._quick_password = ""
+        warning = None
         if delete_folder and was_quick and quick_folder and os.path.isdir(quick_folder):
-            try:
-                shutil.rmtree(quick_folder)
-                debug.log("quick folder deleted", quick_folder)
-            except Exception as e:
-                debug.log("quick folder delete failed", str(e))
-        return {"ok": True, "status": self.status_payload()}
+            reason = blocked_reason(quick_folder)
+            if reason is not None:
+                debug.log("quick folder delete blocked", {"folder": quick_folder, "reason": reason})
+                warning = ("The Quick Start share folder was kept because it is " +
+                           reason + " and cannot be deleted by the app.")
+            else:
+                try:
+                    shutil.rmtree(quick_folder)
+                except Exception as e:
+                    debug.log("quick folder delete failed", str(e))
+                    warning = "The Quick Start share folder could not be deleted: " + friendly_error(e)
+                else:
+                    if os.path.isdir(quick_folder):
+                        debug.log("quick folder delete incomplete", quick_folder)
+                        warning = ("The Quick Start share folder could not be fully removed. "
+                                   "Some files may remain; please delete it by hand.")
+                    else:
+                        debug.log("quick folder deleted", quick_folder)
+        result = {"ok": True, "status": self.status_payload()}
+        if warning:
+            result["warning"] = warning
+        return result
 
     def quick_start(self):
         if self.service.running:
