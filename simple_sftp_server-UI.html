@@ -197,7 +197,13 @@
   .fw-banner a{color:var(--accent);text-decoration:none;font-weight:500;}
   .fw-banner a:hover{text-decoration:underline;}
 
-  ::-webkit-scrollbar{width:11px;height:11px;} ::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:6px;border:2px solid var(--bg);}
+  /* themed scrollbars (Qt WebEngine is Chromium, so WebKit pseudo-elements apply app-wide) */
+  *::-webkit-scrollbar{width:10px;height:10px;}
+  *::-webkit-scrollbar-track{background:transparent;}
+  *::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:999px;border:2px solid transparent;background-clip:padding-box;}
+  *::-webkit-scrollbar-thumb:hover{background:var(--text-faint);background-clip:padding-box;}
+  *::-webkit-scrollbar-button{display:none;height:0;width:0;}
+  *::-webkit-scrollbar-corner{background:transparent;}
 </style>
 </head>
 <body>
