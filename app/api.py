@@ -413,6 +413,11 @@ class Api:
     def quick_start(self):
         if self.service.running:
             return {"ok": False, "error": "Stop the running server first."}
+        # A folder counts as managed only if this call actually created it, the
+        # same rule make_share_folder follows. If the reserved Quick Start folder
+        # already exists, it may hold files from an earlier run or ones someone
+        # placed there by hand, so it must not be marked app-created.
+        created = not os.path.isdir(paths.QUICK_FOLDER)
         try:
             os.makedirs(paths.QUICK_FOLDER, exist_ok=True)
         except Exception as e:
@@ -421,8 +426,9 @@ class Api:
         self._quick_user = {"username": "quickstart", "home": paths.QUICK_FOLDER,
                             "permissions": QUICK_PERMISSIONS,
                             "auth": "password",
-                            "password_hash": hash_password(self._quick_password),
-                            "managed_folder": True}
+                            "password_hash": hash_password(self._quick_password)}
+        if created:
+            self._quick_user["managed_folder"] = True
         cfg = self._load_config()
         ok, port, _error = valid_port(cfg.get("settings", {}).get("port", DEFAULT_PORT))
         if not ok:
