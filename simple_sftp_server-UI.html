@@ -529,6 +529,7 @@ async function onCheckPort(){
   const p=parseInt($("port").value,10);
   if(!p){toast("Enter a port number.",true);return;}
   const r=await API.check_port(p);
+  if(r.error){toast(r.error,true);return;}
   toast(r.free?("Port "+p+" is free."):("Port "+p+" is already in use."), !r.free);
 }
 
@@ -833,7 +834,7 @@ async function onKeygen(){
 /* ---------- theme ---------- */
 let currentTheme="dark";
 function applyTheme(theme){currentTheme=theme;document.body.classList.toggle("light",theme==="light");}
-async function toggleTheme(){const next=currentTheme==="light"?"dark":"light";applyTheme(next);if(API)await API.save_theme(next);}
+async function toggleTheme(){const next=currentTheme==="light"?"dark":"light";applyTheme(next);if(API){const r=await API.save_theme(next);if(r&&!r.ok)toast("Theme changed for now, but it could not be saved and may not be remembered next time.",true);}}
 async function initTheme(){if(!API)return;try{const t=await API.get_theme();applyTheme(t||"dark");}catch(e){}}
 
 /* ---------- updates ---------- */
