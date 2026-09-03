@@ -120,6 +120,30 @@ def test_edit_managed_user_changing_home_drops_managed(tmp_path, monkeypatch):
     assert not rec.get("managed_folder")
 
 
+def test_quick_start_marks_folder_it_creates(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    quick_folder = str(tmp_path / "QuickStart-Share")
+    monkeypatch.setattr(paths, "QUICK_FOLDER", quick_folder)
+    monkeypatch.setattr(api.service, "start", lambda *a, **k: {"ok": True})
+
+    r = api.quick_start()
+    assert r["ok"] is True
+    assert os.path.isdir(quick_folder)
+    assert api._quick_user["managed_folder"] is True
+
+
+def test_quick_start_does_not_mark_preexisting_folder(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    quick_folder = str(tmp_path / "QuickStart-Share")
+    os.makedirs(quick_folder)
+    monkeypatch.setattr(paths, "QUICK_FOLDER", quick_folder)
+    monkeypatch.setattr(api.service, "start", lambda *a, **k: {"ok": True})
+
+    r = api.quick_start()
+    assert r["ok"] is True
+    assert "managed_folder" not in api._quick_user
+
+
 def test_legacy_user_without_managed_field_reports_false(tmp_path, monkeypatch):
     api = _api(tmp_path, monkeypatch)
     home = str(tmp_path / "legacy-home")
