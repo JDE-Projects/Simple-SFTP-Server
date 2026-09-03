@@ -38,7 +38,7 @@ def fail(message):
 
 
 def read_app_version():
-    path = os.path.join(REPO_ROOT, "simple_sftp_server.py")
+    path = os.path.join(REPO_ROOT, "app", "constants.py")
     with open(path, encoding="utf-8") as file:
         match = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', file.read())
     if not match:
