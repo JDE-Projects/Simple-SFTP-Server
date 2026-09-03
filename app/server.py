@@ -6,8 +6,9 @@ import traceback
 
 import paramiko
 
-from app.constants import (DEFAULT_PORT, DISABLED_ALGORITHMS, LOCKOUT_SECONDS, LOCKOUT_THRESHOLD,
-                            MAX_PER_IP_CONNECTIONS, MAX_TOTAL_CONNECTIONS)
+from app.constants import (DEFAULT_PORT, DISABLED_ALGORITHMS, FAIL_RECORD_TTL_SECONDS,
+                            LOCKOUT_PRUNE_INTERVAL, LOCKOUT_SECONDS, LOCKOUT_THRESHOLD,
+                            MAX_PER_IP_CONNECTIONS, MAX_TOTAL_CONNECTIONS, MAX_TRACKED_IPS)
 from app.debug_log import debug
 from app.helpers import friendly_error, human_size
 from app.services.hostkey import load_or_create_host_key
@@ -23,38 +24,67 @@ SHUTDOWN_TIMEOUT = 5.0 # seconds Stop will wait for all threads to finish
 
 
 # ───────────── lockout ─────────────
+# The fail/lockout tables are keyed by source IP and only ever grew before:
+# an address that fails a few times and never returns, or that gets locked
+# out and never reconnects, left a permanent entry. An attacker rotating
+# through IPs could grow this without bound. Records now age out on their
+# own and the table has a hard ceiling, so a full sweep runs periodically
+# and stale or excess entries get dropped.
 class Lockout:
     def __init__(self):
         self._lock = threading.Lock()
-        self._fails = {}
-        self._until = {}
+        self._fails = {}       # ip -> running fail count
+        self._last = {}        # ip -> timestamp of that ip's most recent failure
+        self._until = {}       # ip -> lockout-expiry timestamp (subset of _fails)
+        self._last_prune = 0.0 # timestamp of the last full sweep
 
-    def is_locked(self, ip):
+    def is_locked(self, ip, now=None):
+        if now is None:
+            now = time.time()
         with self._lock:
+            self._maybe_prune(now)
             u = self._until.get(ip)
-            if u and time.time() < u:
+            if u is None:
+                return False
+            if now < u:
                 return True
-            if u:
-                self._until.pop(ip, None)
-                self._fails.pop(ip, None)
+            # lockout has expired: drop the record entirely rather than
+            # leaving a dead entry behind
+            self._until.pop(ip, None)
+            self._fails.pop(ip, None)
+            self._last.pop(ip, None)
             return False
 
-    def record_fail(self, ip):
+    def record_fail(self, ip, now=None):
+        if now is None:
+            now = time.time()
         with self._lock:
+            self._maybe_prune(now)
+            if ip not in self._fails and len(self._fails) >= MAX_TRACKED_IPS:
+                # table is full and this is a new address: force a sweep to
+                # reclaim expired/stale records, then evict the single
+                # oldest non-locked entry if there is still no room. A
+                # locked entry is never dropped just to make room.
+                self._prune(now)
+                if len(self._fails) >= MAX_TRACKED_IPS:
+                    self._evict_oldest_nonlocked(now)
             n = self._fails.get(ip, 0) + 1
             self._fails[ip] = n
+            self._last[ip] = now
             if n >= LOCKOUT_THRESHOLD:
-                self._until[ip] = time.time() + LOCKOUT_SECONDS
+                self._until[ip] = now + LOCKOUT_SECONDS
 
     def clear(self, ip):
         with self._lock:
             self._fails.pop(ip, None)
             self._until.pop(ip, None)
+            self._last.pop(ip, None)
 
     def clear_all(self):
         with self._lock:
             self._fails.clear()
             self._until.clear()
+            self._last.clear()
 
     def locked_list(self):
         out = []
@@ -64,6 +94,54 @@ class Lockout:
                 if u > now:
                     out.append({"ip": ip, "remaining": int(u - now)})
         return out
+
+    # ── internal helpers, callers must already hold self._lock ──
+
+    def _maybe_prune(self, now):
+        if now - self._last_prune >= LOCKOUT_PRUNE_INTERVAL:
+            self._prune(now)
+
+    def _prune(self, now):
+        # 1) drop expired lockouts entirely
+        for ip, until in list(self._until.items()):
+            if until <= now:
+                self._until.pop(ip, None)
+                self._fails.pop(ip, None)
+                self._last.pop(ip, None)
+
+        # 2) drop fail records that are stale and not actively locked
+        for ip, ts in list(self._last.items()):
+            if ip not in self._until and now - ts >= FAIL_RECORD_TTL_SECONDS:
+                self._fails.pop(ip, None)
+                self._last.pop(ip, None)
+
+        # 3) enforce the hard ceiling, oldest non-locked records first;
+        # locked ips are never evicted to make room
+        if len(self._last) > MAX_TRACKED_IPS:
+            candidates = sorted(
+                (ip for ip in self._last if ip not in self._until),
+                key=lambda ip: self._last[ip],
+            )
+            for ip in candidates:
+                if len(self._last) <= MAX_TRACKED_IPS:
+                    break
+                self._fails.pop(ip, None)
+                self._last.pop(ip, None)
+
+        self._last_prune = now
+
+    def _evict_oldest_nonlocked(self, now):
+        oldest_ip = None
+        oldest_ts = None
+        for ip, ts in self._last.items():
+            if ip in self._until:
+                continue
+            if oldest_ts is None or ts < oldest_ts:
+                oldest_ip = ip
+                oldest_ts = ts
+        if oldest_ip is not None:
+            self._fails.pop(oldest_ip, None)
+            self._last.pop(oldest_ip, None)
 
 
 # ───────────── default permissions ─────────────
