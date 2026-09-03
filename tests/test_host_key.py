@@ -31,6 +31,26 @@ def test_malformed_host_key_blocks_startup_and_is_left_untouched(tmp_path, monke
     assert host_key_path.read_bytes() == garbage
 
 
+def test_ed25519_generation_failure_propagates_without_writing_a_key(tmp_path, monkeypatch):
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+
+    host_key_path = tmp_path / "host_ed25519"
+    monkeypatch.setattr(paths, "HOST_KEY_FILE", str(host_key_path))
+
+    def boom():
+        raise RuntimeError("crypto backend broken")
+
+    monkeypatch.setattr(ed25519.Ed25519PrivateKey, "generate", staticmethod(boom))
+
+    # With no fallback key type, a generation failure surfaces honestly and
+    # leaves nothing on disk for the next restart to choke on.
+    with pytest.raises(RuntimeError):
+        load_or_create_host_key()
+
+    assert not host_key_path.exists()
+    assert not list(tmp_path.glob(".host_ed25519.*"))
+
+
 def test_stray_temp_file_does_not_affect_the_loaded_key(tmp_path, monkeypatch):
     host_key_path = tmp_path / "host_ed25519"
     monkeypatch.setattr(paths, "HOST_KEY_FILE", str(host_key_path))

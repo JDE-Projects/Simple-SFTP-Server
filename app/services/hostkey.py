@@ -40,26 +40,6 @@ def _write_atomic(data):
         raise
 
 
-def _write_atomic_rsa(key):
-    """Write an RSA key's private key bytes to a temp file next to
-    HOST_KEY_FILE, then atomically replace HOST_KEY_FILE with it."""
-    directory = os.path.dirname(paths.HOST_KEY_FILE) or "."
-    fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".host_ed25519.")
-    try:
-        with os.fdopen(fd, "w") as f:
-            key.write_private_key(f)
-            f.flush()
-            os.fsync(f.fileno())
-        _chmod_owner_only(tmp_path)
-        os.replace(tmp_path, paths.HOST_KEY_FILE)
-    except Exception:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-        raise
-
-
 # ───────────── host key ─────────────
 def load_or_create_host_key():
     if os.path.exists(paths.HOST_KEY_FILE):
@@ -70,17 +50,15 @@ def load_or_create_host_key():
             raise HostKeyError(
                 f"host key file '{paths.HOST_KEY_FILE}' exists but could not be loaded"
             ) from e
-    try:
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-        from cryptography.hazmat.primitives import serialization
-        k = Ed25519PrivateKey.generate()
-        priv = k.private_bytes(serialization.Encoding.PEM,
-                               serialization.PrivateFormat.OpenSSH,
-                               serialization.NoEncryption())
-        _write_atomic(priv)
-        return paramiko.Ed25519Key(filename=paths.HOST_KEY_FILE)
-    except Exception as e:
-        debug.log("ed25519 host key failed, using RSA", str(e))
-        key = paramiko.RSAKey.generate(3072)
-        _write_atomic_rsa(key)
-        return key
+    # Only Ed25519 keys are ever written. This loader fails closed on a file it
+    # cannot read, so writing an alternate key type would block the next
+    # restart. Let a generation failure surface honestly rather than write a
+    # key the server cannot reload.
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+    k = Ed25519PrivateKey.generate()
+    priv = k.private_bytes(serialization.Encoding.PEM,
+                           serialization.PrivateFormat.OpenSSH,
+                           serialization.NoEncryption())
+    _write_atomic(priv)
+    return paramiko.Ed25519Key(filename=paths.HOST_KEY_FILE)
