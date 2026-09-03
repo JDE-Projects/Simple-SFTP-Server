@@ -116,6 +116,38 @@ def test_ordinary_profile_subfolder_stays_deletable(tmp_path, monkeypatch):
     assert blocked_reason(target) is None
 
 
+# ---- Group 1c: UNC / extended-length paths and the exe_dir exception guard ----
+
+def test_unc_admin_share_into_system_is_blocked():
+    assert blocked_reason(r"\\localhost\C$\Windows\System32") is not None
+    assert blocked_reason(r"\\127.0.0.1\C$\Program Files") is not None
+
+
+def test_any_unc_path_is_blocked():
+    # The app never creates or deletes shares on network paths, so a UNC target
+    # is refused outright (fail closed) rather than reasoned about.
+    assert blocked_reason(r"\\somehost\someshare\folder") is not None
+
+
+def test_extended_length_prefix_into_system_is_blocked():
+    windir = os.environ.get("WINDIR") or os.environ.get("SystemRoot")
+    if not windir:
+        import pytest as _pytest
+        _pytest.skip("no Windows directory in environment")
+    assert blocked_reason("\\\\?\\" + os.path.join(windir, "System32")) is not None
+
+
+def test_exe_dir_that_is_a_tree_root_does_not_exempt_the_tree(tmp_path, monkeypatch):
+    # If the app folder ever resolved to a system tree root, the app exemption
+    # must not open the whole tree to deletion.
+    pf = os.environ.get("ProgramFiles")
+    if not pf:
+        import pytest as _pytest
+        _pytest.skip("no Program Files in environment")
+    monkeypatch.setattr(paths, "exe_dir", lambda: pf)
+    assert blocked_reason(os.path.join(pf, "SomeOtherVendorApp")) is not None
+
+
 # ---- Group 2: delete_user integration ----
 
 def _api(tmp_path, monkeypatch):

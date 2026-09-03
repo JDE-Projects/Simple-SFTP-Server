@@ -89,8 +89,24 @@ def blocked_reason(path):
 
     nc = os.path.normcase(real)
 
+    # Strip Windows extended-length prefixes so an extended path is judged the
+    # same as its plain form (\\?\C:\Windows becomes c:\windows). Otherwise the
+    # prefix would hide a system path from every comparison below.
+    if nc.startswith("\\\\?\\unc\\"):
+        nc = "\\\\" + nc[len("\\\\?\\unc\\"):]
+    elif nc.startswith("\\\\?\\"):
+        nc = nc[len("\\\\?\\"):]
+
+    # Network (UNC) paths reach namespaces the app cannot reason about safely
+    # (admin shares like \\host\C$ map straight onto a system drive). The app
+    # only ever creates and deletes local folders, so refuse any UNC target
+    # outright rather than risk a hidden system path.
+    drive = os.path.splitdrive(nc)[0]
+    if drive.startswith("\\\\") or nc.startswith("\\\\"):
+        return "a network path, which the app does not delete"
+
     # Drive or filesystem root.
-    if os.path.dirname(real) == real or os.path.splitdrive(real)[1].strip("\\/") == "":
+    if os.path.dirname(nc) == nc or os.path.splitdrive(nc)[1].strip("\\/") == "":
         return "a drive root"
 
     protected = _protected_paths()
@@ -105,11 +121,15 @@ def blocked_reason(path):
     # Refuse anything inside a system or other-application tree, at any depth.
     # The app's own folder is the one exception: shares the app created live
     # under it, and they stay deletable even if the app was installed under a
-    # protected tree like Program Files.
+    # protected tree like Program Files. That exception is denied if the app
+    # folder somehow resolves to a tree root itself, so it can never open a
+    # whole system tree.
+    trees = _system_trees()
     exe_nc = _norm(paths.exe_dir())
-    inside_app = exe_nc is not None and (nc == exe_nc or _contains(exe_nc, nc))
+    inside_app = (exe_nc is not None and exe_nc not in trees
+                  and (nc == exe_nc or _contains(exe_nc, nc)))
     if not inside_app:
-        for t in _system_trees():
+        for t in trees:
             if nc == t or _contains(t, nc):
                 return "inside a protected system or application folder"
 
