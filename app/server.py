@@ -6,7 +6,8 @@ import traceback
 
 import paramiko
 
-from app.constants import DEFAULT_PORT, DISABLED_ALGORITHMS, LOCKOUT_SECONDS, LOCKOUT_THRESHOLD
+from app.constants import (DEFAULT_PORT, DISABLED_ALGORITHMS, LOCKOUT_SECONDS, LOCKOUT_THRESHOLD,
+                            MAX_PER_IP_CONNECTIONS, MAX_TOTAL_CONNECTIONS)
 from app.debug_log import debug
 from app.helpers import friendly_error, human_size
 from app.services.hostkey import load_or_create_host_key
@@ -452,6 +453,14 @@ class SFTPService:
         # disconnect. Later phases use this to close transports and wait for
         # teardown.
         self._conns = {}
+        # Connection admission bookkeeping, guarded by self._lock. Counted from
+        # accept through disconnect so a flood of half-open handshakes cannot
+        # spawn unbounded handler threads.
+        self._conn_count = 0
+        self._ip_counts = {}
+        # Last time each rejection reason was logged, so a flood cannot flood
+        # the debug log too. Guarded by self._lock.
+        self._reject_log_times = {}
         # Coalescing pump state, all guarded by self._lock. Transfer threads only
         # record here; the pump thread reads and pushes to the window.
         self._pending_activity = []      # activity lines not yet flushed
@@ -538,6 +547,8 @@ class SFTPService:
         with self._lock:
             self._sessions.clear()
             self._conns.clear()
+            self._conn_count = 0
+            self._ip_counts.clear()
             # Drop any buffered live-view state so a restart starts clean.
             self._pending_activity = []
             self._latest_transfer = None
@@ -549,6 +560,38 @@ class SFTPService:
             debug.log("SERVER stop: threads still winding down", {"count": lingering})
         debug.log("SERVER stop")
         return {"ok": True}
+
+    def _admit(self, ip):
+        # Single atomic check-and-increment so two accepts racing on the same
+        # ip cannot both slip past the cap.
+        with self._lock:
+            if self._conn_count >= MAX_TOTAL_CONNECTIONS:
+                return False
+            if self._ip_counts.get(ip, 0) >= MAX_PER_IP_CONNECTIONS:
+                return False
+            self._conn_count += 1
+            self._ip_counts[ip] = self._ip_counts.get(ip, 0) + 1
+            return True
+
+    def _release(self, ip):
+        with self._lock:
+            self._conn_count = max(0, self._conn_count - 1)
+            count = self._ip_counts.get(ip, 0) - 1
+            if count <= 0:
+                self._ip_counts.pop(ip, None)
+            else:
+                self._ip_counts[ip] = count
+
+    def _log_rejected(self, reason, ip):
+        # At most one debug line per reason per second, so a connection flood
+        # cannot flood the debug log too.
+        now = time.time()
+        with self._lock:
+            last = self._reject_log_times.get(reason, 0)
+            if now - last < 1.0:
+                return
+            self._reject_log_times[reason] = now
+        debug.log("rejected (%s)" % reason, ip)
 
     def _accept_loop(self):
         while not self._stop.is_set():
@@ -562,17 +605,32 @@ class SFTPService:
                 continue
             except OSError:
                 break
-            threading.Thread(target=self._handle, args=(conn, addr), daemon=True).start()
+            ip = addr[0]
+            if self.lockout.is_locked(ip):
+                self._log_rejected("locked", ip)
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                continue
+            if not self._admit(ip):
+                self._log_rejected("capacity", ip)
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                continue
+            try:
+                threading.Thread(target=self._handle, args=(conn, addr), daemon=True).start()
+            except Exception:
+                self._release(ip)
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def _handle(self, conn, addr):
         ip = addr[0]
-        if self.lockout.is_locked(ip):
-            debug.log("rejected (locked)", ip)
-            try:
-                conn.close()
-            except Exception:
-                pass
-            return
         with self._lock:
             self._sid += 1
             sid = self._sid
@@ -631,6 +689,7 @@ class SFTPService:
                     existed = True
                     self._sessions.pop(sid, None)
                 self._conns.pop(sid, None)
+            self._release(ip)
             if existed:
                 debug.log("client disconnected", {"ip": ip})
                 self._emit_status()
