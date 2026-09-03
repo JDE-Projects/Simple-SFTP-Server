@@ -332,6 +332,56 @@ def test_upload_then_download_roundtrip_updates_byte_count(tmp_path, sftp_server
         _close(client, sftp)
 
 
+# ───────────── open-file attribute changes ─────────────
+
+def test_open_file_chmod_reports_unsupported_and_leaves_mode(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "a.txt"
+    target.write_bytes(b"data")
+    before = target.stat().st_mode
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        f = sftp.open("a.txt", "r+")
+        try:
+            # Attribute change over the open handle must be refused, not
+            # silently reported as done: the client sees an error and the
+            # file's mode on disk is untouched.
+            with pytest.raises(IOError):
+                f.chmod(0o444)
+        finally:
+            f.close()
+        assert target.stat().st_mode == before
+    finally:
+        _close(client, sftp)
+
+
+def test_open_file_utime_reports_unsupported_and_leaves_mtime(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "a.txt"
+    target.write_bytes(b"data")
+    before = target.stat().st_mtime
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        f = sftp.open("a.txt", "r+")
+        try:
+            with pytest.raises(IOError):
+                # A year-2000 timestamp, clearly different from the real one.
+                f.utime((946684800, 946684800))
+        finally:
+            f.close()
+        assert target.stat().st_mtime == before
+    finally:
+        _close(client, sftp)
+
+
 # ───────────── lockout ─────────────
 
 def test_lockout_blocks_then_clears(tmp_path, sftp_server):
