@@ -1,5 +1,5 @@
-"""Tests for _valid_geometry: pure validation of a saved window geometry dict.
-See simple_sftp_server.py, "prefs (theme + window geometry)" section."""
+"""Tests for _valid_geometry in app/services/prefs.py: pure validation of a
+saved window geometry dict."""
 
 from app.services.prefs import _valid_geometry
 

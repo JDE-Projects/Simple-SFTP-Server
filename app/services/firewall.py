@@ -105,8 +105,8 @@ def _firewall_status(port):
             sys.executable if getattr(sys, "frozen", False)
             else os.path.abspath(sys.modules["__main__"].__file__)))
 
-        # Known limitation (see roadmap.md "Firewall detection and messaging"): we treat
-        # "any profile enabled" as a proxy for whichever profile is actually active,
+        # Known limitation: we treat "any profile enabled" as a proxy for
+        # whichever profile is actually active,
         # since reliably determining the in-use profile without admin rights or COM is
         # not practical here. We also only see Windows Defender Firewall, never
         # third-party firewalls or the router. That is why the UI says connections

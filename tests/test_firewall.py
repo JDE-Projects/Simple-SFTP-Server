@@ -1,8 +1,8 @@
 """Tests for the pure firewall-detection helpers: _parse_firewall_rule,
-_rule_allows, and _decide_firewall. See simple_sftp_server.py, "firewall
-detection (advisory, read-only, no admin)" section. The registry-reading
-wrapper (_firewall_status) does real I/O and is covered by the manual smoke
-test instead, per roadmap.md."""
+_rule_allows, and _decide_firewall in app/services/firewall.py (advisory,
+read-only, no admin rights). The registry-reading
+wrapper (_firewall_status) does real I/O against the live Windows registry, so
+it is covered by the manual smoke test rather than an automated one."""
 
 import os
 
