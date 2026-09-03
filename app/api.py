@@ -49,7 +49,6 @@ class Api:
         self.service = SFTPService(self)
         self._quick_user = None
         self._quick_password = ""
-        self._new_password = ""
         self._firewall_state = None
         self._cfg_lock = threading.Lock()
         # Paths created by make_share_folder (or Quick Start) during this run,
@@ -203,8 +202,9 @@ class Api:
 
     # ---- password generation ----
     def new_password(self):
-        self._new_password = generate_password(20)
-        return {"password": self._new_password}
+        # Return the generated password straight to the screen. The backend
+        # keeps no copy, so a cancelled or failed save leaves nothing in memory.
+        return {"password": generate_password(20)}
 
     def validate_username(self, username):
         ok, msg = validate_username(username)
@@ -290,7 +290,6 @@ class Api:
                 users.append(rec)
             users.sort(key=lambda x: x.get("username", "").lower())
             cfg["users"] = users
-            self._new_password = ""
             if not self._save_config(cfg):
                 return {"ok": False, "error": "Could not write the config file."}
         debug.log("user saved", {"user": username, "permissions": permissions, "auth": auth})

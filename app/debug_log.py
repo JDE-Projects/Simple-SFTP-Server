@@ -1,9 +1,40 @@
 import json
 import os
+import re
 import threading
 from datetime import datetime
 
 from app.paths import exe_dir
+
+
+# ───────────── credential redaction ─────────────
+# Nothing in this app is meant to log a password or private key. This scrubber
+# is a backstop that runs on every write, so the README's promise ("no passwords
+# or key material") holds even if a future log line, or a captured traceback,
+# ever carries one. Public keys are not secrets and are left readable.
+_REDACTED = "[redacted]"
+
+# A private key block in PEM form, e.g. -----BEGIN OPENSSH PRIVATE KEY----- ...
+_PEM_KEY = re.compile(
+    r"-----BEGIN [^\n-]*PRIVATE KEY-----.*?-----END [^\n-]*PRIVATE KEY-----",
+    re.DOTALL,
+)
+# A JSON-ish "field": "value" pair whose name looks like a secret. Matches the
+# double-quoted form json.dumps produces and a plain form. The key name is kept
+# so the log still shows a secret was present; only the value is blanked.
+_SECRET_FIELD = re.compile(
+    r'("?(?:password|passwd|passphrase|secret|token|api_?key|private_?key)"?'
+    r'\s*[:=]\s*)(".*?"|\'.*?\'|[^\s,}]+)',
+    re.IGNORECASE,
+)
+
+
+def _redact(text):
+    if not text:
+        return text
+    text = _PEM_KEY.sub(_REDACTED, text)
+    text = _SECRET_FIELD.sub(lambda m: m.group(1) + '"' + _REDACTED + '"', text)
+    return text
 
 
 # ───────────── debug log ─────────────
@@ -39,11 +70,11 @@ class DebugLog:
         try:
             with self._lock, open(self._path, "a", encoding="utf-8") as f:
                 ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                f.write(f"[{ts}] {label}\n")
+                f.write(f"[{ts}] {_redact(str(label))}\n")
                 if content:
                     if isinstance(content, (dict, list)):
                         content = json.dumps(content, indent=2, default=str)
-                    f.write(f"{content}\n")
+                    f.write(f"{_redact(str(content))}\n")
                 f.write("\n")
         except Exception:
             pass

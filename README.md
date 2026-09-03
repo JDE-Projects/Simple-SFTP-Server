@@ -37,7 +37,8 @@ If you enjoyed this project and would like to buy me a coffee, check out my [Ko-
 - Default port 2222 (no admin needed), with a plain-language message if a port
   is already in use, plus a pre-flight port check.
 - Built-in check for updates against GitHub Releases.
-- Optional debug log, off by default, with credentials redacted.
+- Optional debug log, off by default; no passwords or key material are written
+  to it.
 - Secure transport only: weak or vulnerable algorithms are disabled, so the
   server runs securely or fails with a clear message (no unsafe fallback).
 
@@ -169,7 +170,9 @@ separately from Windows Defender Firewall.
 - The host key persists next to the app so its fingerprint is stable; treat
   that file as private and do not commit it.
 - The optional debug log is off by default; when on it writes
-  `Debug_Log_MMDDYYYY_HHMMSS.txt` next to the app with credentials redacted.
+  `Debug_Log_MMDDYYYY_HHMMSS.txt` next to the app. It records activity and
+  errors but no passwords or key material, and a redaction pass on every entry
+  enforces that even for captured error traces.
 - **Network use.** Other than the job you ask of it, this app makes one automatic network call: a check to GitHub for a newer release (at startup and when you press **Check for updates**), which sends only a version request. It collects and sends no personal data, usage data, or analytics.
 
 ## A note on how this was built
