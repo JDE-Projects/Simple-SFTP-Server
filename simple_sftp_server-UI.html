@@ -309,7 +309,7 @@
 </div>
 
 <!-- user modal -->
-<div id="userModal" class="modal"><div class="card">
+<div id="userModal" class="modal"><div class="card" role="dialog" aria-modal="true" aria-labelledby="umTitle">
   <h3 id="umTitle">Add User</h3>
   <div class="row">
     <div class="f"><label class="field-label">Username</label><input id="umUser"><div id="umUserErr" class="errline"></div></div>
@@ -353,8 +353,8 @@
 </div></div>
 
 <!-- keygen modal -->
-<div id="keygenModal" class="modal"><div class="card">
-  <h3>Generate key pair</h3>
+<div id="keygenModal" class="modal"><div class="card" role="dialog" aria-modal="true" aria-labelledby="kgTitle">
+  <h3 id="kgTitle">Generate key pair</h3>
   <div class="row"><div class="f"><label class="field-label">Type</label><select id="kgType"></select></div>
     <div class="f" style="flex:2 1 auto"><label class="field-label">Save private key as</label>
       <div style="display:flex;gap:8px"><input id="kgPath" class="mono" style="flex:1 1 auto" placeholder="C:\Users\you\.ssh\id_ed25519"><button id="kgBrowse" class="btn-ghost btn-sm" style="margin:0;white-space:nowrap">Browse...</button></div>
@@ -367,7 +367,7 @@
 </div></div>
 
 <!-- confirm modal (generic) -->
-<div id="confirmModal" class="modal"><div class="card" style="width:480px">
+<div id="confirmModal" class="modal"><div class="card" style="width:480px" role="dialog" aria-modal="true" aria-labelledby="cfTitle">
   <h3 id="cfTitle">Confirm</h3>
   <p id="cfText" style="font-size:12.5px;line-height:1.5;color:var(--text);white-space:pre-line;margin:0 0 16px"></p>
   <div id="cfFolderRow" style="display:none;margin-bottom:14px">
@@ -384,8 +384,8 @@
 </div></div>
 
 <!-- update-check failure modal -->
-<div id="updateErrModal" class="modal"><div class="card" style="width:480px">
-  <h3>Couldn't check for updates</h3>
+<div id="updateErrModal" class="modal"><div class="card" style="width:480px" role="dialog" aria-modal="true" aria-labelledby="updateErrTitle">
+  <h3 id="updateErrTitle">Couldn't check for updates</h3>
   <p id="updateErrMsg" style="font-size:12.5px;line-height:1.5;color:var(--text);margin:0 0 16px"></p>
   <div class="modal-actions"><button id="updateErrClose" class="btn-ghost">Close</button></div>
 </div></div>
@@ -402,6 +402,55 @@ let umPwVisible=false;
 
 function toast(m,lvl){const t=$("toast");t.textContent=m;const c=(lvl===true||lvl==="err")?"err ":(lvl==="warn")?"warn ":"";t.className=c+"show";setTimeout(()=>t.className=t.className.replace("show","").trim(),3400);}
 function copyText(s){if(navigator.clipboard)navigator.clipboard.writeText(s);}
+
+/* ---------- modal dialog helpers ---------- */
+let modalStack=[];
+function focusableEls(card){
+  return Array.from(card.querySelectorAll('a[href],button,input,select,textarea,[tabindex]'))
+    .filter(el=>!el.disabled && el.tabIndex!==-1 && el.offsetParent!==null);
+}
+function openModal(id,opts){
+  opts=opts||{};
+  const el=$(id);
+  modalStack.push({id:id,returnTo:document.activeElement});
+  el.classList.add("show");
+  const card=el.querySelector(".card");
+  let target=opts.focus?$(opts.focus):null;
+  if(!target||target.disabled||target.offsetParent===null){
+    const list=focusableEls(card);
+    target=list.length?list[0]:card;
+  }
+  target.focus();
+}
+function closeModal(id){
+  const el=$(id);
+  el.classList.remove("show");
+  const idx=modalStack.map(m=>m.id).lastIndexOf(id);
+  const entry=idx!==-1?modalStack.splice(idx,1)[0]:null;
+  if(entry&&entry.returnTo&&document.body.contains(entry.returnTo)&&entry.returnTo.offsetParent!==null){
+    entry.returnTo.focus();
+  }
+}
+document.addEventListener("keydown",e=>{
+  if(!modalStack.length)return;
+  const top=modalStack[modalStack.length-1];
+  if(e.key==="Escape"){
+    e.preventDefault();
+    closeModal(top.id);
+    return;
+  }
+  if(e.key==="Tab"){
+    const card=$(top.id).querySelector(".card");
+    const list=focusableEls(card);
+    if(!list.length)return;
+    const first=list[0],last=list[list.length-1];
+    if(e.shiftKey){
+      if(document.activeElement===first||!card.contains(document.activeElement)){e.preventDefault();last.focus();}
+    }else{
+      if(document.activeElement===last||!card.contains(document.activeElement)){e.preventDefault();first.focus();}
+    }
+  }
+});
 
 function dur(s){s=Math.max(0,s|0);const m=Math.floor(s/60),h=Math.floor(m/60);
   if(h)return h+"h "+(m%60)+"m";if(m)return m+"m "+(s%60)+"s";return s+"s";}
@@ -454,7 +503,7 @@ async function init(){
   document.querySelectorAll(".cp[data-c]").forEach(b=>b.onclick=()=>{const v=$(b.dataset.c).textContent;if(v&&v!=="—"){copyText(v);toast("Copied");}});
 
   $("addUser").onclick=()=>openUser(null);
-  $("umCancel").onclick=()=>$("userModal").classList.remove("show");
+  $("umCancel").onclick=()=>closeModal("userModal");
   $("umPick").onclick=onPickFolder;
   $("umMake").onclick=onMakeFolder;
   $("umGen").onclick=async()=>{const r=await API.new_password();$("umPw").value=r.password;};
@@ -465,7 +514,7 @@ async function init(){
   $("umKeygen").onclick=openKeygen;
 
   $("kgBrowse").onclick=async()=>{const sug=$("kgType").value.startsWith("Ed25519")?"id_ed25519":"id_rsa";const p=await API.browse_save_key(sug);if(p)$("kgPath").value=p;};
-  $("kgClose").onclick=()=>$("keygenModal").classList.remove("show");
+  $("kgClose").onclick=()=>closeModal("keygenModal");
   $("kgGo").onclick=onKeygen;
   $("kgCopy").onclick=()=>{copyText($("kgPub").textContent);toast("Public key copied");};
 
@@ -558,9 +607,9 @@ function showSimpleConfirm(title, text, onOk){
   $("cfFolderRow").style.display="none";
   $("cfSimpleRow").style.display="flex";
   $("cfOk").textContent="Confirm";
-  $("confirmModal").classList.add("show");
-  $("cfCancel").onclick=()=>$("confirmModal").classList.remove("show");
-  $("cfOk").onclick=()=>{$("confirmModal").classList.remove("show");onOk();};
+  openModal("confirmModal",{focus:"cfCancel"});
+  $("cfCancel").onclick=()=>closeModal("confirmModal");
+  $("cfOk").onclick=()=>{closeModal("confirmModal");onOk();};
 }
 
 function showConfirmStop(title, text, folderPath, onDecide){
@@ -569,9 +618,9 @@ function showConfirmStop(title, text, folderPath, onDecide){
   $("cfFolderRow").style.display="block";
   $("cfSimpleRow").style.display="none";
   $("cfFolderLabel").textContent=folderPath?"Share folder: "+folderPath:"";
-  $("confirmModal").classList.add("show");
-  $("cfKeep").onclick=()=>{$("confirmModal").classList.remove("show");onDecide(false);};
-  $("cfDelete").onclick=()=>{$("confirmModal").classList.remove("show");onDecide(true);};
+  openModal("confirmModal",{focus:"cfKeep"});
+  $("cfKeep").onclick=()=>{closeModal("confirmModal");onDecide(false);};
+  $("cfDelete").onclick=()=>{closeModal("confirmModal");onDecide(true);};
 }
 
 /* ---------- status ---------- */
@@ -767,8 +816,7 @@ function openUser(u){
   }
   setAuth(u?u.auth:"password");
   if(u&&u.auth!=="password")$("umKeys").placeholder=u.key_count?u.key_count+" key(s) on file. Paste keys here to replace them.":"ssh-ed25519 AAAA... name@host";
-  $("userModal").classList.add("show");
-  setTimeout(()=>$("umUser").focus(),30);
+  openModal("userModal",{focus:"umUser"});
 }
 
 async function onValidateUser(){
@@ -791,7 +839,7 @@ async function onSaveUser(){
   $("umSave").disabled=false;
   if(!r.ok){toast(r.error||"Could not save.",true);return;}
   users=r.users;renderUsers();
-  $("userModal").classList.remove("show");
+  closeModal("userModal");
   toast("User saved.");
 }
 
@@ -806,14 +854,14 @@ function confirmDeleteUser(u){
   }else{
     $("cfFolderLabel").textContent=home?"User folder: "+home:"";
   }
-  $("confirmModal").classList.add("show");
+  openModal("confirmModal",{focus:"cfKeep"});
   $("cfKeep").textContent="Keep folder & files";
   $("cfDelete").textContent="Also delete folder";
   $("cfKeep").onclick=()=>runDeleteUser(u,false,"User deleted.");
   $("cfDelete").onclick=()=>runDeleteUser(u,true,"User and folder deleted.");
 }
 async function runDeleteUser(u,deleteFolder,okMsg){
-  $("confirmModal").classList.remove("show");
+  closeModal("confirmModal");
   const r=await API.delete_user(u.username,deleteFolder);
   if(!r.ok){toast(r.error||"Could not delete the user.",true);return;}
   users=r.users;renderUsers();
@@ -824,7 +872,7 @@ async function runDeleteUser(u,deleteFolder,okMsg){
 function openKeygen(){
   if(!$("umUser").value.trim()){toast("Enter a username first.",true);return;}
   $("kgResult").style.display="none";$("kgPath").value="";$("kgPass").value="";$("kgGo").disabled=false;
-  $("keygenModal").classList.add("show");
+  openModal("keygenModal",{focus:"kgType"});
 }
 function keygenSuccess(r){
   $("kgPub").textContent=r.public;
@@ -889,8 +937,8 @@ async function doUpdate(manual){
   }
 }
 
-function openUpdateErrorModal(reason){$("updateErrMsg").textContent=reason;$("updateErrModal").classList.add("show");}
-function closeUpdateErrorModal(){$("updateErrModal").classList.remove("show");}
+function openUpdateErrorModal(reason){$("updateErrMsg").textContent=reason;openModal("updateErrModal",{focus:"updateErrClose"});}
+function closeUpdateErrorModal(){closeModal("updateErrModal");}
 
 function fadeNotice(){
   const notice=$("updateNotice");
