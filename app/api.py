@@ -13,7 +13,7 @@ from app.helpers import fingerprint_sha256, friendly_error
 from app.server import DEFAULT_PERMISSIONS, QUICK_PERMISSIONS, SFTPService, perms_for
 from app.services.firewall import _firewall_status
 from app.services.keygen import generate_keypair as _generate_keypair
-from app.services.network import lan_ip, port_is_free, public_ip
+from app.services.network import lan_ip, port_is_free, public_ip, valid_port
 from app.services.passwords import generate_password, hash_password
 from app.services.prefs import load_prefs, save_prefs
 from app.services.safety import blocked_reason
@@ -335,20 +335,26 @@ class Api:
         threading.Thread(target=worker, daemon=True).start()
 
     def start_server(self, port):
+        ok, use_port, error = valid_port(port)
+        if not ok:
+            return {"ok": False, "error": error}
         with self._cfg_lock:
             cfg = self._load_config()
             if not cfg.get("users"):
                 return {"ok": False, "error": "Add at least one user before starting (or use Quick Start)."}
+            cfg.setdefault("settings", {})["port"] = use_port
             try:
-                cfg.setdefault("settings", {})["port"] = int(port or DEFAULT_PORT)
-                self._save_config(cfg)
+                saved = self._save_config(cfg)
             except Exception:
-                pass
-        use_port = int(port or DEFAULT_PORT)
+                saved = False
         r = self.service.start(use_port, quick=False)
         if r.get("ok"):
             self.emit("status", self.status_payload())
             self._check_firewall_async(use_port)
+            if not saved:
+                r["warning"] = ("The server started on port " + str(use_port) +
+                                 ", but your port choice could not be saved and may not "
+                                 "be remembered next time.")
         return r
 
     def stop_server(self, delete_folder=False):
@@ -397,7 +403,9 @@ class Api:
                             "password_hash": hash_password(self._quick_password),
                             "managed_folder": True}
         cfg = self._load_config()
-        port = int(cfg.get("settings", {}).get("port", DEFAULT_PORT))
+        ok, port, _error = valid_port(cfg.get("settings", {}).get("port", DEFAULT_PORT))
+        if not ok:
+            port = DEFAULT_PORT
         r = self.service.start(port, quick=True)
         if not r.get("ok"):
             self._quick_user = None
@@ -432,7 +440,10 @@ class Api:
         return {"ok": bool(ip), "ip": ip}
 
     def check_port(self, port):
-        return {"free": port_is_free(port)}
+        ok, use_port, error = valid_port(port)
+        if not ok:
+            return {"free": False, "error": error}
+        return {"free": port_is_free(use_port)}
 
     # ---- lockout ----
     def unlock_ip(self, ip):
