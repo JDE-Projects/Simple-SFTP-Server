@@ -12,7 +12,7 @@ from app.constants import (DEFAULT_PORT, DISABLED_ALGORITHMS, FAIL_RECORD_TTL_SE
                             MAX_TRACKED_IPS)
 from app.debug_log import debug
 from app.helpers import friendly_error, human_size
-from app.services.hostkey import load_or_create_host_key
+from app.services.hostkey import HostKeyError, load_or_create_host_key
 from app.services.passwords import _DUMMY_PASSWORD_HASH, verify_password
 
 
@@ -618,7 +618,19 @@ class SFTPService:
             return {"ok": False, "error": "Server is already running."}
         port = int(port or DEFAULT_PORT)
         if self.host_key is None:
-            self.host_key = load_or_create_host_key()
+            try:
+                self.host_key = load_or_create_host_key()
+            except HostKeyError:
+                return {
+                    "ok": False,
+                    "error": (
+                        "The server's host key file could not be read and may be corrupted. "
+                        "To protect your saved server identity it was left unchanged. "
+                        "Restore a backup of 'host_ed25519', or move it out of the app folder "
+                        "to let the server create a new identity (connecting clients will see "
+                        "a one-time host-key-changed warning)."
+                    ),
+                }
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
