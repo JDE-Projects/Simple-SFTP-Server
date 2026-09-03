@@ -834,6 +834,21 @@ async function onPickFolder(){const r=await API.pick_folder();if(r.ok&&r.path)$(
 async function onMakeFolder(){const u=$("umUser").value.trim();if(!u){toast("Enter a username first.",true);return;}
   const r=await API.make_share_folder(u);if(r.ok){$("umHome").value=r.path;toast("Folder ready.");}else toast(r.error||"Couldn't make folder.",true);}
 
+function liveConnInfo(username){
+  const list=(cur&&cur.connections)||[];
+  let conns=0, transfers=0;
+  for(const c of list){ if(c.user===username){ conns++; transfers+=(c.active||0); } }
+  return {conns, transfers};
+}
+
+function disconnectWarning(username){
+  const {conns, transfers}=liveConnInfo(username);
+  if(!conns) return "";
+  let s="This user has an active connection that will be disconnected.";
+  if(transfers>0) s="This user has an active connection with "+transfers+" transfer"+(transfers>1?"s":"")+" in progress that will be disconnected.";
+  return s;
+}
+
 async function onSaveUser(){
   const perms=getPermissions();
   if(!Object.values(perms).some(Boolean)){$("umPermErr").textContent="Grant the user at least one permission.";return;}
@@ -841,6 +856,23 @@ async function onSaveUser(){
   const keys=$("umKeys").value.split("\n").map(s=>s.trim()).filter(Boolean);
   const p={username:$("umUser").value.trim(),permissions:perms,
     home:$("umHome").value.trim(),auth:authMode,password:$("umPw").value,authorized_keys:keys};
+  const warn=editingOriginal?disconnectWarning(editingOriginal):"";
+  if(warn){
+    $("cfTitle").textContent="Disconnect active user?";
+    $("cfText").textContent=warn+" They can reconnect right away with the new settings.\n\nSave the changes anyway?";
+    $("cfFolderRow").style.display="none";
+    $("cfSimpleRow").style.display="flex";
+    $("cfCancel").textContent="Cancel";
+    $("cfOk").textContent="Save anyway";
+    $("cfCancel").onclick=()=>closeModal("confirmModal");
+    $("cfOk").onclick=()=>{ closeModal("confirmModal"); doSaveUser(p); };
+    openModal("confirmModal",{focus:"cfCancel"});
+    return;
+  }
+  doSaveUser(p);
+}
+
+async function doSaveUser(p){
   $("umSave").disabled=true;
   const r=await API.save_user(p,editingOriginal);
   $("umSave").disabled=false;
@@ -854,6 +886,8 @@ function confirmDeleteUser(u){
   const home=u.home||"";
   $("cfTitle").textContent="Delete user";
   $("cfText").textContent=`Remove "${u.username}"? Their login will be deleted.`;
+  const dw=disconnectWarning(u.username);
+  if(dw) $("cfText").textContent += "\n\n"+dw;
   $("cfFolderRow").style.display="block";
   $("cfSimpleRow").style.display="none";
   if(home&&!u.managed_folder){
