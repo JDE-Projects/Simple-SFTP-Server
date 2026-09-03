@@ -14,5 +14,9 @@ DISABLED_ALGORITHMS = {
 LOCKOUT_THRESHOLD = 5
 LOCKOUT_SECONDS = 15 * 60
 
+FAIL_RECORD_TTL_SECONDS = 15 * 60  # a fail count is forgotten after this long with no new failure from that address
+MAX_TRACKED_IPS = 4096             # hard ceiling on how many addresses the lockout table holds at once
+LOCKOUT_PRUNE_INTERVAL = 60        # a full sweep runs at most this often on normal calls
+
 MAX_TOTAL_CONNECTIONS = 100  # total simultaneous live connections, handshaking + established
 MAX_PER_IP_CONNECTIONS = 10  # simultaneous live connections from one source address
