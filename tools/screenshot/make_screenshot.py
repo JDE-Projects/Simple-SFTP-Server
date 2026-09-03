@@ -69,6 +69,9 @@ def build_setup_script(version):
         "onActivity({verb:'UPLOAD',name:'nightly-archive.zip',human:'842 MB'});"
         "onActivity({verb:'DOWNLOAD',name:'vendor-manifest.csv',human:'64 KB'});"
         "}"
+        "if(typeof onTransfer==='function'){"
+        "onTransfer({active:true,dir:'upload',name:'nightly-archive.zip',human:'612 MB / 842 MB',pct:73});"
+        "}"
     )
 
 
