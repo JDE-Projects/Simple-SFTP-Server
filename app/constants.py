@@ -13,3 +13,6 @@ DISABLED_ALGORITHMS = {
 
 LOCKOUT_THRESHOLD = 5
 LOCKOUT_SECONDS = 15 * 60
+
+MAX_TOTAL_CONNECTIONS = 100  # total simultaneous live connections, handshaking + established
+MAX_PER_IP_CONNECTIONS = 10  # simultaneous live connections from one source address
