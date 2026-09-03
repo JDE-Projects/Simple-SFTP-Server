@@ -262,7 +262,12 @@ class JailedHandle(paramiko.SFTPHandle):
             return paramiko.SFTPServer.convert_errno(e.errno)
 
     def chattr(self, attr):
-        return paramiko.SFTP_OK
+        # This server does not apply attribute changes (permissions, ownership,
+        # timestamps, size) to open files. Return "unsupported" rather than a
+        # false success so a client is never told a change it asked for was
+        # made when it was not. This matches the by-path behavior, which
+        # paramiko answers as unsupported by default.
+        return paramiko.SFTP_OP_UNSUPPORTED
 
     def write(self, offset, data):
         if self.writefile is None:
