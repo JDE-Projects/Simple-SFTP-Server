@@ -73,7 +73,7 @@
   .btn-ghost:hover:not(:disabled){border-color:var(--accent);transform:translateY(-1px);}
   .btn-sm{padding:5px 9px;font-size:11.5px;}
   button:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;transform:none;}
-  button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  button:focus-visible,a:focus-visible,input[type=checkbox]:focus-visible,.kbfocus{outline:2px solid var(--accent);outline-offset:2px;}
 
   /* control bar */
   .conn{padding:11px 14px;display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
@@ -421,6 +421,13 @@ function openModal(id,opts){
     target=list.length?list[0]:card;
   }
   target.focus();
+  // A mouse click opening the modal suppresses :focus-visible on the focused
+  // button, so its ring would not show until a key is pressed. Force a visible
+  // ring on buttons/links; inputs and selects already show a :focus ring.
+  if(target.tagName==="BUTTON"||target.tagName==="A"){
+    target.classList.add("kbfocus");
+    target.addEventListener("blur",()=>target.classList.remove("kbfocus"),{once:true});
+  }
 }
 function closeModal(id){
   const el=$(id);
