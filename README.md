@@ -32,8 +32,11 @@ If you enjoyed this project and would like to buy me a coffee, check out my [Ko-
   folder, reading file details, transferring), running request counts and bytes
   moved, in-flight transfers, a recent-activity feed, and locked-out IPs with
   one-click Unlock.
-- Brute-force lockout: five failed logins from an address are blocked for
-  fifteen minutes, with a manual override.
+- Brute-force lockout: repeated failed logins block that account for fifteen
+  minutes, with an address-level backstop against password spraying and a
+  manual override.
+- Concurrent connections are capped, per address and overall, so a flood of
+  half-open connections can't exhaust the server.
 - Default port 2222 (no admin needed), with a plain-language message if a port
   is already in use, plus a pre-flight port check.
 - Built-in check for updates against GitHub Releases.
@@ -163,8 +166,9 @@ separately from Windows Defender Firewall.
 - Generated passwords use a cryptographic random source: 20 characters, no
   look-alikes, with letters, digits, and symbols guaranteed.
 - Each user is jailed to their folder; paths that try to escape it are refused.
-- Failed logins are rate-limited per address (five strikes, fifteen-minute
-  lockout) with a manual unlock.
+- Failed logins are rate-limited per account (five strikes, fifteen-minute
+  lockout), with a wider address-level backstop against spraying across
+  usernames, plus a manual unlock.
 - Only modern, secure key-exchange, ciphers, and MACs are offered; known-weak
   algorithms are disabled. There is no "compatibility" downgrade.
 - The host key persists next to the app so its fingerprint is stable; treat
