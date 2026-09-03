@@ -540,6 +540,8 @@ class ServerIface(paramiko.ServerInterface):
         u = self.service.find_user(username)
         if u and u.get("auth") in ("key", "both"):
             offered = key.get_base64()
+            # The base64 blob encodes both the key algorithm and the key
+            # material, so an exact blob match means same type and same key.
             for ak in u.get("authorized_keys", []):
                 parts = ak.split()
                 if len(parts) >= 2 and parts[1] == offered:

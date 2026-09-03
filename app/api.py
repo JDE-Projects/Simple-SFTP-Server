@@ -1,9 +1,13 @@
+import base64
+import binascii
 import json
 import os
 import shutil
 import threading
 import webbrowser
 from datetime import datetime, timezone
+
+import paramiko
 
 from app import paths
 from app.atomic import atomic_write_json
@@ -19,6 +23,23 @@ from app.services.prefs import load_prefs, save_prefs
 from app.services.safety import blocked_reason
 from app.services.updates import check_update as _check_update
 from app.services.usernames import validate_username
+
+
+def _valid_authorized_key(line):
+    # A line is only accepted if its second field actually decodes as
+    # base64 and loads as a real public key of the type it claims to be.
+    parts = line.split()
+    if len(parts) < 2:
+        return False
+    try:
+        blob = base64.b64decode(parts[1], validate=True)
+    except (binascii.Error, ValueError):
+        return False
+    try:
+        key = paramiko.PKey.from_type_string(parts[0], blob)
+        return key.get_base64() == parts[1]
+    except Exception:
+        return False
 
 
 # ───────────── js api ─────────────
@@ -255,11 +276,10 @@ class Api:
                 rec.pop("password_hash", None)
             if auth in ("key", "both"):
                 keys = p.get("authorized_keys") or []
-                cleaned = []
-                for k in keys:
-                    k = (k or "").strip()
-                    if k and len(k.split()) >= 2 and k.split()[0].startswith(("ssh-", "ecdsa-")):
-                        cleaned.append(k)
+                stripped = [k for k in ((k or "").strip() for k in keys) if k]
+                cleaned = [k for k in stripped if _valid_authorized_key(k)]
+                if stripped and not cleaned:
+                    return {"ok": False, "error": "One or more public keys are not valid. Paste the full contents of a .pub file (for example ssh-ed25519 AAAA... comment)."}
                 if not cleaned and not rec.get("authorized_keys"):
                     return {"ok": False, "error": "Add at least one public key (or switch to password auth)."}
                 if cleaned:
@@ -309,8 +329,8 @@ class Api:
             result["warning"] = warning
         return result
 
-    def generate_keypair(self, key_type, out_path, passphrase, username):
-        return _generate_keypair(key_type, out_path, passphrase, username)
+    def generate_keypair(self, key_type, out_path, passphrase, username, overwrite=False):
+        return _generate_keypair(key_type, out_path, passphrase, username, overwrite)
 
     def browse_save_key(self, suggested):
         try:

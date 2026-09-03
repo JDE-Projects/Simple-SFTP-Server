@@ -6,11 +6,15 @@ import paramiko
 from app.debug_log import debug
 
 
-def generate_keypair(key_type, out_path, passphrase, username):
+def generate_keypair(key_type, out_path, passphrase, username, overwrite=False):
     try:
         from cryptography.hazmat.primitives import serialization
         if not out_path:
             return {"ok": False, "error": "Choose where to save the private key."}
+        pub_path = out_path + ".pub"
+        if not overwrite and (os.path.exists(out_path) or os.path.exists(pub_path)):
+            return {"ok": False, "exists": True,
+                    "error": "A key already exists at that path. Choose Replace to overwrite it, or pick a different name."}
         enc = (serialization.BestAvailableEncryption(passphrase.encode())
                if passphrase else serialization.NoEncryption())
         if (key_type or "").startswith("Ed25519"):
@@ -26,6 +30,7 @@ def generate_keypair(key_type, out_path, passphrase, username):
             key.write_private_key(buf, password=passphrase or None)
             priv = buf.getvalue().encode()
             pub = f"ssh-rsa {key.get_base64()}".encode()
+        priv_existed = os.path.exists(out_path)
         with open(out_path, "wb") as f:
             f.write(priv)
         try:
@@ -34,8 +39,16 @@ def generate_keypair(key_type, out_path, passphrase, username):
             pass
         label = f"{username}@simple-sftp-server" if username else "simple-sftp-server"
         pubtext = pub.decode().strip() + " " + label
-        with open(out_path + ".pub", "w", encoding="utf-8") as f:
-            f.write(pubtext + "\n")
+        try:
+            with open(pub_path, "w", encoding="utf-8") as f:
+                f.write(pubtext + "\n")
+        except Exception:
+            if not priv_existed:
+                try:
+                    os.remove(out_path)
+                except OSError:
+                    pass
+            raise
         debug.log("KEYGEN", {"type": key_type, "path": out_path})
         return {"ok": True, "public": pubtext, "private_path": out_path}
     except PermissionError:

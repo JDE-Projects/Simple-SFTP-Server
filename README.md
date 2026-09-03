@@ -122,8 +122,10 @@ pipeline from this repo. You can also check the file against the published
    host-key fingerprint on first connection.
 4. Watch the Live panel for who is connected and what is transferring. Unlock
    an address if it gets locked out after failed logins.
-5. Generate an Ed25519 or RSA key pair for a user who needs one, hand them the
-   private key, and the public key is added to their account automatically.
+5. Generate an Ed25519 or RSA key pair for a user who needs one and hand them
+   the private key. The public key is filled into the user form, but it is
+   only saved to the account when you click Save, alongside any keys already
+   listed (it does not replace them).
 
 ## Firewall and network access
 The first time the server starts listening, Windows shows its own one-time
