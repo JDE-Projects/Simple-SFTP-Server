@@ -56,6 +56,66 @@ def test_ordinary_folder_elsewhere_is_allowed(tmp_path, monkeypatch):
     assert blocked_reason(share) is None
 
 
+# ---- Group 1b: folders INSIDE a system tree are blocked at any depth ----
+
+def test_inside_windows_is_blocked():
+    windir = os.environ.get("WINDIR") or os.environ.get("SystemRoot")
+    if not windir:
+        import pytest as _pytest
+        _pytest.skip("no Windows directory in environment")
+    assert blocked_reason(os.path.join(windir, "System32")) is not None
+
+
+def test_inside_program_files_is_blocked():
+    pf = os.environ.get("ProgramFiles")
+    if not pf:
+        import pytest as _pytest
+        _pytest.skip("no Program Files in environment")
+    assert blocked_reason(os.path.join(pf, "SomeVendorApp")) is not None
+
+
+def test_inside_programdata_is_blocked():
+    pd = os.environ.get("ProgramData")
+    if not pd:
+        import pytest as _pytest
+        _pytest.skip("no ProgramData in environment")
+    assert blocked_reason(os.path.join(pd, "SomeVendorApp")) is not None
+
+
+def test_inside_appdata_stays_deletable():
+    # AppData is the user's own per-app data, same category as the rest of the
+    # profile: deletable behind the UI warning, not a hard block.
+    appdata = os.path.join(os.path.expanduser("~"), "AppData", "Roaming", "SFTP-Shares-xyz")
+    assert blocked_reason(appdata) is None
+
+
+def test_share_inside_app_dir_under_program_files_is_allowed(tmp_path, monkeypatch):
+    # The app itself is installed inside a protected tree (Program Files), but
+    # its own shares under the app folder must stay deletable.
+    fake_pf = str(tmp_path / "ProgramFiles")
+    exe_dir = os.path.join(fake_pf, "SimpleSFTP")
+    os.makedirs(exe_dir)
+    monkeypatch.setenv("ProgramFiles", fake_pf)
+    monkeypatch.setattr(paths, "exe_dir", lambda: exe_dir)
+
+    share = os.path.join(exe_dir, "bob-share")
+    os.makedirs(share)
+    assert blocked_reason(share) is None
+
+    # A different app's folder in the same tree is still blocked.
+    other = os.path.join(fake_pf, "OtherApp")
+    os.makedirs(other)
+    assert blocked_reason(other) is not None
+
+
+def test_ordinary_profile_subfolder_stays_deletable(tmp_path, monkeypatch):
+    # Not a system tree and not a standard profile folder: a share the user
+    # placed in their own profile remains deletable (behind the UI warning).
+    monkeypatch.setattr(paths, "exe_dir", lambda: str(tmp_path / "app"))
+    target = os.path.join(os.path.expanduser("~"), "SFTP-Shares-xyz")
+    assert blocked_reason(target) is None
+
+
 # ---- Group 2: delete_user integration ----
 
 def _api(tmp_path, monkeypatch):
