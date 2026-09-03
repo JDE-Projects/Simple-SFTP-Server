@@ -345,13 +345,14 @@ def test_lockout_blocks_then_clears(tmp_path, sftp_server):
         with pytest.raises(paramiko.AuthenticationException):
             sftp_password(handle.port, "bob", "wrong password")
 
-    # The lockout rejects the raw connection before an SSH session even
-    # forms, so paramiko sees a dropped banner exchange rather than an
-    # authentication failure.
-    with pytest.raises(paramiko.SSHException):
+    # bob's account is now locked, but the address itself is still well
+    # below the address-wide backstop, so the connection reaches the SSH
+    # session and auth is rejected explicitly rather than the raw
+    # connection being dropped.
+    with pytest.raises(paramiko.AuthenticationException):
         sftp_password(handle.port, "bob", password)
 
-    handle.service.lockout.clear("127.0.0.1")
+    handle.service.lockout.clear("127.0.0.1", "bob")
 
     client, sftp = sftp_password(handle.port, "bob", password)
     _close(client, sftp)

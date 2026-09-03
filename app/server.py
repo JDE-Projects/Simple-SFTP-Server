@@ -7,8 +7,9 @@ import traceback
 import paramiko
 
 from app.constants import (DEFAULT_PORT, DISABLED_ALGORITHMS, FAIL_RECORD_TTL_SECONDS,
-                            LOCKOUT_PRUNE_INTERVAL, LOCKOUT_SECONDS, LOCKOUT_THRESHOLD,
-                            MAX_PER_IP_CONNECTIONS, MAX_TOTAL_CONNECTIONS, MAX_TRACKED_IPS)
+                            IP_LOCKOUT_THRESHOLD, LOCKOUT_PRUNE_INTERVAL, LOCKOUT_SECONDS,
+                            LOCKOUT_THRESHOLD, MAX_PER_IP_CONNECTIONS, MAX_TOTAL_CONNECTIONS,
+                            MAX_TRACKED_IPS)
 from app.debug_log import debug
 from app.helpers import friendly_error, human_size
 from app.services.hostkey import load_or_create_host_key
@@ -24,76 +25,133 @@ SHUTDOWN_TIMEOUT = 5.0 # seconds Stop will wait for all threads to finish
 
 
 # ───────────── lockout ─────────────
-# The fail/lockout tables are keyed by source IP and only ever grew before:
-# an address that fails a few times and never returns, or that gets locked
-# out and never reconnects, left a permanent entry. An attacker rotating
-# through IPs could grow this without bound. Records now age out on their
-# own and the table has a hard ceiling, so a full sweep runs periodically
-# and stale or excess entries get dropped.
+# Two bounded tables track brute-force failures. The account layer is keyed
+# by (ip, username) and locks out one address/username pair after
+# LOCKOUT_THRESHOLD failures; this is what a successful login clears, so one
+# valid account on a shared address (NAT/CGNAT) never resets another
+# account's fail count. The address layer is keyed by ip alone and locks the
+# whole address after IP_LOCKOUT_THRESHOLD failures regardless of which
+# usernames they targeted, so one address spraying passwords across many
+# accounts is still stopped. Both layers age out on their own and each table
+# has a hard ceiling, so a full sweep runs periodically and stale or excess
+# entries get dropped; an address or account that fails a few times and
+# never returns does not leave a permanent entry behind.
 class Lockout:
     def __init__(self):
         self._lock = threading.Lock()
-        self._fails = {}       # ip -> running fail count
-        self._last = {}        # ip -> timestamp of that ip's most recent failure
-        self._until = {}       # ip -> lockout-expiry timestamp (subset of _fails)
-        self._last_prune = 0.0 # timestamp of the last full sweep
+        self._fails = {}       # (ip, username) -> running fail count
+        self._last = {}        # (ip, username) -> timestamp of that account's most recent failure
+        self._until = {}       # (ip, username) -> lockout-expiry timestamp (subset of _fails)
+        self._ip_fails = {}    # ip -> running fail count across all usernames from that ip
+        self._ip_last = {}     # ip -> timestamp of that ip's most recent failure
+        self._ip_until = {}    # ip -> lockout-expiry timestamp (subset of _ip_fails)
+        self._last_prune = 0.0 # timestamp of the last full sweep, shared by both layers
 
-    def is_locked(self, ip, now=None):
+    def is_locked(self, ip, username=None, now=None):
         if now is None:
             now = time.time()
         with self._lock:
             self._maybe_prune(now)
-            u = self._until.get(ip)
-            if u is None:
-                return False
-            if now < u:
+
+            ip_u = self._ip_until.get(ip)
+            ip_locked = False
+            if ip_u is not None:
+                if now < ip_u:
+                    ip_locked = True
+                else:
+                    # lockout has expired: drop the record entirely rather
+                    # than leaving a dead entry behind
+                    self._ip_until.pop(ip, None)
+                    self._ip_fails.pop(ip, None)
+                    self._ip_last.pop(ip, None)
+
+            if ip_locked:
                 return True
-            # lockout has expired: drop the record entirely rather than
-            # leaving a dead entry behind
-            self._until.pop(ip, None)
-            self._fails.pop(ip, None)
-            self._last.pop(ip, None)
+
+            if username is not None:
+                key = (ip, username)
+                u = self._until.get(key)
+                if u is not None:
+                    if now < u:
+                        return True
+                    self._until.pop(key, None)
+                    self._fails.pop(key, None)
+                    self._last.pop(key, None)
+
             return False
 
-    def record_fail(self, ip, now=None):
+    def record_fail(self, ip, username, now=None):
         if now is None:
             now = time.time()
         with self._lock:
             self._maybe_prune(now)
-            if ip not in self._fails and len(self._fails) >= MAX_TRACKED_IPS:
-                # table is full and this is a new address: force a sweep to
+
+            key = (ip, username)
+            if key not in self._fails and len(self._fails) >= MAX_TRACKED_IPS:
+                # table is full and this is a new account: force a sweep to
                 # reclaim expired/stale records, then evict the single
                 # oldest non-locked entry if there is still no room. A
                 # locked entry is never dropped just to make room.
                 self._prune(now)
                 if len(self._fails) >= MAX_TRACKED_IPS:
-                    self._evict_oldest_nonlocked(now)
-            n = self._fails.get(ip, 0) + 1
-            self._fails[ip] = n
-            self._last[ip] = now
-            if n >= LOCKOUT_THRESHOLD:
-                self._until[ip] = now + LOCKOUT_SECONDS
+                    self._evict_oldest_nonlocked(self._fails, self._last, self._until)
 
-    def clear(self, ip):
+            if ip not in self._ip_fails and len(self._ip_fails) >= MAX_TRACKED_IPS:
+                self._prune(now)
+                if len(self._ip_fails) >= MAX_TRACKED_IPS:
+                    self._evict_oldest_nonlocked(self._ip_fails, self._ip_last, self._ip_until)
+
+            n = self._fails.get(key, 0) + 1
+            self._fails[key] = n
+            self._last[key] = now
+            if n >= LOCKOUT_THRESHOLD:
+                self._until[key] = now + LOCKOUT_SECONDS
+
+            ip_n = self._ip_fails.get(ip, 0) + 1
+            self._ip_fails[ip] = ip_n
+            self._ip_last[ip] = now
+            if ip_n >= IP_LOCKOUT_THRESHOLD:
+                self._ip_until[ip] = now + LOCKOUT_SECONDS
+
+    def clear(self, ip, username=None):
         with self._lock:
-            self._fails.pop(ip, None)
-            self._until.pop(ip, None)
-            self._last.pop(ip, None)
+            if username is not None:
+                key = (ip, username)
+                self._fails.pop(key, None)
+                self._until.pop(key, None)
+                self._last.pop(key, None)
+                return
+
+            # admin unlock: clear the address and every account tracked
+            # under it
+            self._ip_fails.pop(ip, None)
+            self._ip_until.pop(ip, None)
+            self._ip_last.pop(ip, None)
+            for key in [k for k in self._fails if k[0] == ip]:
+                self._fails.pop(key, None)
+                self._until.pop(key, None)
+                self._last.pop(key, None)
 
     def clear_all(self):
         with self._lock:
             self._fails.clear()
             self._until.clear()
             self._last.clear()
+            self._ip_fails.clear()
+            self._ip_until.clear()
+            self._ip_last.clear()
 
     def locked_list(self):
-        out = []
+        out = {}
         now = time.time()
         with self._lock:
-            for ip, u in list(self._until.items()):
+            for ip, u in list(self._ip_until.items()):
                 if u > now:
-                    out.append({"ip": ip, "remaining": int(u - now)})
-        return out
+                    out[ip] = max(out.get(ip, 0), int(u - now))
+            for (ip, _username), u in list(self._until.items()):
+                if u > now:
+                    out[ip] = max(out.get(ip, 0), int(u - now))
+        return [{"ip": ip, "remaining": remaining} for ip, remaining in out.items()]
 
     # ── internal helpers, callers must already hold self._lock ──
 
@@ -102,46 +160,51 @@ class Lockout:
             self._prune(now)
 
     def _prune(self, now):
-        # 1) drop expired lockouts entirely
-        for ip, until in list(self._until.items()):
-            if until <= now:
-                self._until.pop(ip, None)
-                self._fails.pop(ip, None)
-                self._last.pop(ip, None)
-
-        # 2) drop fail records that are stale and not actively locked
-        for ip, ts in list(self._last.items()):
-            if ip not in self._until and now - ts >= FAIL_RECORD_TTL_SECONDS:
-                self._fails.pop(ip, None)
-                self._last.pop(ip, None)
-
-        # 3) enforce the hard ceiling, oldest non-locked records first;
-        # locked ips are never evicted to make room
-        if len(self._last) > MAX_TRACKED_IPS:
-            candidates = sorted(
-                (ip for ip in self._last if ip not in self._until),
-                key=lambda ip: self._last[ip],
-            )
-            for ip in candidates:
-                if len(self._last) <= MAX_TRACKED_IPS:
-                    break
-                self._fails.pop(ip, None)
-                self._last.pop(ip, None)
-
+        self._prune_table(now, self._fails, self._last, self._until)
+        self._prune_table(now, self._ip_fails, self._ip_last, self._ip_until)
         self._last_prune = now
 
-    def _evict_oldest_nonlocked(self, now):
-        oldest_ip = None
+    @staticmethod
+    def _prune_table(now, fails, last, until):
+        # 1) drop expired lockouts entirely
+        for key, u in list(until.items()):
+            if u <= now:
+                until.pop(key, None)
+                fails.pop(key, None)
+                last.pop(key, None)
+
+        # 2) drop fail records that are stale and not actively locked
+        for key, ts in list(last.items()):
+            if key not in until and now - ts >= FAIL_RECORD_TTL_SECONDS:
+                fails.pop(key, None)
+                last.pop(key, None)
+
+        # 3) enforce the hard ceiling, oldest non-locked records first;
+        # locked keys are never evicted to make room
+        if len(last) > MAX_TRACKED_IPS:
+            candidates = sorted(
+                (key for key in last if key not in until),
+                key=lambda key: last[key],
+            )
+            for key in candidates:
+                if len(last) <= MAX_TRACKED_IPS:
+                    break
+                fails.pop(key, None)
+                last.pop(key, None)
+
+    @staticmethod
+    def _evict_oldest_nonlocked(fails, last, until):
+        oldest_key = None
         oldest_ts = None
-        for ip, ts in self._last.items():
-            if ip in self._until:
+        for key, ts in last.items():
+            if key in until:
                 continue
             if oldest_ts is None or ts < oldest_ts:
-                oldest_ip = ip
+                oldest_key = key
                 oldest_ts = ts
-        if oldest_ip is not None:
-            self._fails.pop(oldest_ip, None)
-            self._last.pop(oldest_ip, None)
+        if oldest_key is not None:
+            fails.pop(oldest_key, None)
+            last.pop(oldest_key, None)
 
 
 # ───────────── default permissions ─────────────
@@ -454,7 +517,7 @@ class ServerIface(paramiko.ServerInterface):
         return ",".join(methods) if methods else "publickey,password"
 
     def check_auth_password(self, username, password):
-        if self.service.lockout.is_locked(self.ip):
+        if self.service.lockout.is_locked(self.ip, username):
             return paramiko.AUTH_FAILED
         u = self.service.find_user(username)
         real_hash = u.get("password_hash") if (u and u.get("auth") in ("password", "both")) else None
@@ -467,12 +530,12 @@ class ServerIface(paramiko.ServerInterface):
             # anyway and discard the result, so this path takes about as
             # long as the real one and doesn't leak valid usernames via timing.
             verify_password(password, _DUMMY_PASSWORD_HASH)
-        self.service.lockout.record_fail(self.ip)
+        self.service.lockout.record_fail(self.ip, username)
         debug.log("auth fail (password)", {"ip": self.ip, "user": username})
         return paramiko.AUTH_FAILED
 
     def check_auth_publickey(self, username, key):
-        if self.service.lockout.is_locked(self.ip):
+        if self.service.lockout.is_locked(self.ip, username):
             return paramiko.AUTH_FAILED
         u = self.service.find_user(username)
         if u and u.get("auth") in ("key", "both"):
@@ -482,14 +545,14 @@ class ServerIface(paramiko.ServerInterface):
                 if len(parts) >= 2 and parts[1] == offered:
                     self._win(username, u)
                     return paramiko.AUTH_SUCCESSFUL
-        self.service.lockout.record_fail(self.ip)
+        self.service.lockout.record_fail(self.ip, username)
         debug.log("auth fail (key)", {"ip": self.ip, "user": username})
         return paramiko.AUTH_FAILED
 
     def _win(self, username, user):
         self.username = username
         self.user = user
-        self.service.lockout.clear(self.ip)
+        self.service.lockout.clear(self.ip, username)
 
     def check_channel_request(self, kind, chanid):
         if kind == "session":
