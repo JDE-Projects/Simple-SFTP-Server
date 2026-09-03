@@ -14,6 +14,12 @@ DISABLED_ALGORITHMS = {
 LOCKOUT_THRESHOLD = 5
 LOCKOUT_SECONDS = 15 * 60
 
+# The address-wide backstop against one source address spraying passwords
+# across many usernames. It is deliberately higher than LOCKOUT_THRESHOLD so
+# one account's normal string of failures does not lock out the whole
+# address, only a spray across many accounts does.
+IP_LOCKOUT_THRESHOLD = 20
+
 FAIL_RECORD_TTL_SECONDS = 15 * 60  # a fail count is forgotten after this long with no new failure from that address
 MAX_TRACKED_IPS = 4096             # hard ceiling on how many addresses the lockout table holds at once
 LOCKOUT_PRUNE_INTERVAL = 60        # a full sweep runs at most this often on normal calls
