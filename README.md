@@ -65,6 +65,12 @@ Two ways to get it from the [Releases](../../releases) page - pick one:
   for a locked-down PC or a USB stick. Keep the folder together; the exe needs
   the files next to it.
 
+Or install the same installer from the command line with WinGet:
+
+```
+winget install --exact --id JDE-Projects.SimpleSFTPServer
+```
+
 Either way: Windows only, no Python or setup required. Unsigned, so SmartScreen
 may warn the first time: More info > Run anyway. On first connection a client
 also needs your firewall to allow the port, and for access from outside your
@@ -86,6 +92,10 @@ first installed it.
   key, so its fingerprint stays the same for clients who already trust it;
   otherwise every client will see a fingerprint-changed warning on first
   reconnect. Copy `simple_sftp_server.pref` too, for your theme choice.
+- **WinGet:** run `winget upgrade --exact --id JDE-Projects.SimpleSFTPServer`.
+  It runs the installer over your current copy, same as the Installer option
+  above. The WinGet listing can trail a new release by a few days while
+  Microsoft reviews it.
 
 Saved-user passwords exist only as bcrypt hashes inside `server_config.json`,
 so there's nothing else to carry over.
