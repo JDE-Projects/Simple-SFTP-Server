@@ -195,6 +195,7 @@ separately from Windows Defender Firewall.
   its own logs, and shows a warning if a log can't be written or an old one
   can't be deleted.
 - **Network use.** Other than the job you ask of it, this app makes one automatic network call: a check to GitHub for a newer release (at startup and when you press **Check for updates**), which sends only a version request. When you press **Get** for the Public IP, the app sends a plain request to api.ipify.org and falls back to checkip.amazonaws.com if needed. That service necessarily sees your public IP address because that is how the lookup works. The app collects and sends no personal data, usage data, or analytics.
+- **Privacy policy.** The full privacy policy for this app and the other JDE-Projects tools is at https://jde-projects.com/privacy.
 
 ## A note on how this was built
 This project was built with AI assistance. The design decisions, feature
@@ -209,4 +210,4 @@ noncommercial redistribution are permitted; commercial use is not. Keep the
 copyright notice; no warranty. This tool bundles third-party code; see
 [THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt).
 
-For commercial licensing, open a [GitHub issue](https://github.com/JDE-Projects/Simple-SFTP-Server/issues) with the title "Commercial License Inquiry".
+For commercial licensing, see the [JDE-Projects support page](https://jde-projects.com/support/#commercial-licensing).
