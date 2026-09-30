@@ -134,12 +134,17 @@
   .qmeta{font-size:11px;color:var(--text-dim);margin-top:4px;}
 
   /* users table */
-  table{border-collapse:collapse;width:100%;font-size:12px;}
+  /* fixed layout: the button column keeps its width and the four text columns
+     share the rest equally, cutting long text with "..." (full text on hover),
+     so Edit and Delete always fit however narrow the panel gets */
+  table{border-collapse:collapse;width:100%;font-size:12px;table-layout:fixed;}
   thead th{position:sticky;top:0;z-index:1;text-align:left;font-weight:600;font-size:10.5px;color:var(--text-dim);
-    background:var(--bg-2);padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
+    background:var(--bg-2);padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  thead th.act{width:140px;}
   tbody td{padding:7px 10px;border-bottom:1px solid rgba(32,41,58,.45);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  tbody td.folder{max-width:200px;font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--text-dim);}
+  tbody td.folder{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--text-dim);}
   tbody td.act{text-align:right;}
+  tbody td .tag{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;}
   .tag{font-size:10px;color:var(--text-dim);background:var(--panel-2);border:1px solid var(--border-2);padding:2px 7px;border-radius:20px;}
 
   /* bottom bar */
@@ -293,7 +298,7 @@
       <div class="panel card-pane grow">
         <div class="pane-head"><div class="pane-title">Users<span id="userCount" class="meta" style="color:var(--text-faint)"></span><span class="grow"></span><button id="addUser" class="btn-primary btn-sm">Add User</button></div></div>
         <div class="pane-body">
-          <table><thead><tr><th>User</th><th>Permissions</th><th>Auth</th><th>Folder</th><th></th></tr></thead><tbody id="userRows"></tbody></table>
+          <table><thead><tr><th>User</th><th>Permissions</th><th>Auth</th><th>Folder</th><th class="act"></th></tr></thead><tbody id="userRows"></tbody></table>
           <div id="usersEmpty" class="empty" style="padding:18px 14px">No users yet. Add one, or use Quick Start for an instant full-access share.</div>
         </div>
       </div>
@@ -799,9 +804,10 @@ function renderUsers(){
   $("usersEmpty").style.display=users.length?"none":"block";
   users.forEach(u=>{
     const tr=document.createElement("tr");
-    tr.innerHTML=`<td><b>${esc(u.username)}</b></td>`+
+    const authText=(AUTHLBL[u.auth]||u.auth)+(u.auth!=="password"?" ("+u.key_count+")":"");
+    tr.innerHTML=`<td title="${esc(u.username)}"><b>${esc(u.username)}</b></td>`+
       `<td><span class="tag" title="${esc(permSummary(u.permissions))}">${esc(permSummary(u.permissions))}</span></td>`+
-      `<td><span class="tag">${AUTHLBL[u.auth]||u.auth}${u.auth!=="password"?" ("+u.key_count+")":""}</span></td>`+
+      `<td><span class="tag" title="${esc(authText)}">${esc(authText)}</span></td>`+
       `<td class="folder" title="${esc(u.home)}">${esc(u.home)}</td>`+
       `<td class="act"></td>`;
     const act=tr.lastChild;
