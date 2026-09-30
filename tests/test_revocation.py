@@ -10,6 +10,7 @@ from app import paths
 from app.api import Api
 from app.constants import DEFAULT_PORT
 from app.server import DEFAULT_PERMISSIONS
+from simple_sftp_server import APP_VERSION
 from tests.sftp_helpers import make_user, sftp_password
 
 
@@ -21,7 +22,7 @@ def _perms(**overrides):
 
 def _api(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
-    return Api()
+    return Api(APP_VERSION)
 
 
 def _seed_config(tmp_path, api):

@@ -10,6 +10,7 @@ import time
 from app import paths
 from app.api import Api
 from app.server import DEFAULT_PERMISSIONS
+from simple_sftp_server import APP_VERSION
 from tests.sftp_helpers import free_port, make_host_key, make_user, sftp_password
 
 
@@ -52,7 +53,7 @@ def test_stop_tears_down_a_mid_flight_transfer(tmp_path, sftp_server):
 def test_quick_start_teardown(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
     monkeypatch.setattr(paths, "QUICK_FOLDER", str(tmp_path / "quick"))
-    api = Api()
+    api = Api(APP_VERSION)
     api._service.host_key = make_host_key(tmp_path)
 
     port = free_port()
@@ -78,7 +79,7 @@ def test_quick_start_teardown(tmp_path, monkeypatch):
 
 def test_revoking_a_user_kicks_their_live_client(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
-    api = Api()
+    api = Api(APP_VERSION)
     api._service.host_key = make_host_key(tmp_path)
 
     home = tmp_path / "bob"

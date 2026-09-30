@@ -6,6 +6,8 @@ import sys
 from importlib import import_module, metadata
 from pathlib import Path
 
+from simple_sftp_server import APP_VERSION
+
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -57,7 +59,7 @@ def build_manifest():
 
         return functions
 
-    return dict(sorted(get_functions(api_module.Api()).items()))
+    return dict(sorted(get_functions(api_module.Api(APP_VERSION)).items()))
 
 
 def _manifest_difference(expected, actual):
@@ -97,10 +99,19 @@ def test_manifest_has_no_nested_object_methods():
 
 def test_fresh_api_has_only_underscore_instance_attributes():
     api_module = import_module("app.api")
-    api = api_module.Api()
+    api = api_module.Api(APP_VERSION)
 
     public = [name for name in vars(api) if not name.startswith("_")]
     assert not public, f"Api has public instance attributes: {public}"
+
+
+def test_api_uses_injected_version_and_launcher_version_is_plain_semver(tmp_path, monkeypatch):
+    api_module = import_module("app.api")
+    paths = import_module("app.paths")
+    monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
+
+    assert api_module.Api("9.9.9").get_meta()["version"] == "9.9.9"
+    assert re.fullmatch(r"\d+\.\d+\.\d+", APP_VERSION)
 
 
 def test_pywebview_version_matches_copied_discovery_rules():

@@ -17,6 +17,7 @@ from app.api import Api, _valid_authorized_key
 from app.constants import DEFAULT_PORT
 from app.server import DEFAULT_PERMISSIONS
 from app.services.keygen import generate_keypair
+from simple_sftp_server import APP_VERSION
 from tests.sftp_helpers import make_user
 
 
@@ -28,7 +29,7 @@ def _perms(**overrides):
 
 def _api(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
-    api = Api()
+    api = Api(APP_VERSION)
     api._save_config({"settings": {"port": DEFAULT_PORT}, "users": []})
     return api
 
@@ -36,7 +37,7 @@ def _api(tmp_path, monkeypatch):
 def test_generate_encrypted_ed25519_key(tmp_path):
     private_path = tmp_path / "id_ed25519"
 
-    result = Api().generate_keypair(
+    result = Api(APP_VERSION).generate_keypair(
         "Ed25519", str(private_path), "test-passphrase", "fixture-user"
     )
 
@@ -54,7 +55,7 @@ def test_generate_encrypted_ed25519_key(tmp_path):
 def test_generate_rsa_key_round_trip(tmp_path):
     private_path = tmp_path / "id_rsa"
 
-    result = Api().generate_keypair("RSA", str(private_path), "", "fixture-user")
+    result = Api(APP_VERSION).generate_keypair("RSA", str(private_path), "", "fixture-user")
 
     assert result["ok"] is True
     key = paramiko.RSAKey.from_private_key_file(str(private_path))
@@ -66,11 +67,11 @@ def test_generate_rsa_key_round_trip(tmp_path):
 def test_overwrite_refused_by_default(tmp_path):
     private_path = tmp_path / "id_ed25519"
 
-    first = Api().generate_keypair("Ed25519", str(private_path), "", "fixture-user")
+    first = Api(APP_VERSION).generate_keypair("Ed25519", str(private_path), "", "fixture-user")
     assert first["ok"] is True
     original_bytes = private_path.read_bytes()
 
-    second = Api().generate_keypair("Ed25519", str(private_path), "", "fixture-user")
+    second = Api(APP_VERSION).generate_keypair("Ed25519", str(private_path), "", "fixture-user")
     assert second["ok"] is False
     assert second["exists"] is True
     assert private_path.read_bytes() == original_bytes
@@ -79,11 +80,11 @@ def test_overwrite_refused_by_default(tmp_path):
 def test_overwrite_allowed_when_requested(tmp_path):
     private_path = tmp_path / "id_ed25519"
 
-    first = Api().generate_keypair("Ed25519", str(private_path), "", "fixture-user")
+    first = Api(APP_VERSION).generate_keypair("Ed25519", str(private_path), "", "fixture-user")
     assert first["ok"] is True
     original_bytes = private_path.read_bytes()
 
-    second = Api().generate_keypair(
+    second = Api(APP_VERSION).generate_keypair(
         "Ed25519", str(private_path), "", "fixture-user", True
     )
     assert second["ok"] is True
@@ -339,13 +340,13 @@ def test_login_match_accepts_matching_key_rejects_other(tmp_path, sftp_server):
     home = tmp_path / "alice"
     home.mkdir()
     private_path = tmp_path / "id_ed25519"
-    keygen_result = Api().generate_keypair("Ed25519", str(private_path), "", "alice")
+    keygen_result = Api(APP_VERSION).generate_keypair("Ed25519", str(private_path), "", "alice")
     assert keygen_result["ok"] is True
 
     matching_key = paramiko.Ed25519Key.from_private_key_file(str(private_path))
 
     other_private_path = tmp_path / "other_id_ed25519"
-    other_result = Api().generate_keypair("Ed25519", str(other_private_path), "", "mallory")
+    other_result = Api(APP_VERSION).generate_keypair("Ed25519", str(other_private_path), "", "mallory")
     assert other_result["ok"] is True
     other_key = paramiko.Ed25519Key.from_private_key_file(str(other_private_path))
 

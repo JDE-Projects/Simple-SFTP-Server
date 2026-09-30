@@ -11,7 +11,7 @@ import paramiko
 
 from app import paths
 from app.atomic import atomic_write_json
-from app.constants import APP_VERSION, DEFAULT_PORT, GITHUB_REPO
+from app.constants import DEFAULT_PORT, GITHUB_REPO
 from app.debug_log import debug
 from app.helpers import fingerprint_sha256, friendly_error
 from app.server import DEFAULT_PERMISSIONS, QUICK_PERMISSIONS, SFTPService, perms_for
@@ -44,7 +44,8 @@ def _valid_authorized_key(line):
 
 # ───────────── js api ─────────────
 class Api:
-    def __init__(self):
+    def __init__(self, app_version):
+        self._app_version = app_version
         self._window = None
         self._service = SFTPService(self)
         self._quick_user = None
@@ -73,7 +74,7 @@ class Api:
         cfg = self._load_config()
         warning = getattr(self, "_config_warning", None)
         self._config_warning = None
-        return {"version": APP_VERSION, "key_types": ["Ed25519", "RSA-4096"],
+        return {"version": self._app_version, "key_types": ["Ed25519", "RSA-4096"],
                 "default_port": DEFAULT_PORT, "settings": cfg.get("settings", {}),
                 "users": self._public_users(cfg), "config_warning": warning}
 
@@ -489,7 +490,7 @@ class Api:
 
     # ---- update / misc ----
     def check_update(self):
-        return _check_update(APP_VERSION, GITHUB_REPO)
+        return _check_update(self._app_version, GITHUB_REPO)
 
     def open_url(self, url):
         try:

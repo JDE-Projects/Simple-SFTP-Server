@@ -6,12 +6,13 @@ import os
 
 from app import paths
 from app.api import Api
+from simple_sftp_server import APP_VERSION
 
 
 def _api(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
     monkeypatch.setattr(paths, "exe_dir", lambda: str(tmp_path))
-    return Api()
+    return Api(APP_VERSION)
 
 
 def _save(api, username, home, password="Sup3rSecretPass!"):

@@ -10,6 +10,7 @@ import pytest
 from app import paths
 from app.api import Api
 from app.services.safety import blocked_reason
+from simple_sftp_server import APP_VERSION
 
 
 # ---- Group 1: blocked_reason ----
@@ -154,7 +155,7 @@ def test_exe_dir_that_is_a_tree_root_does_not_exempt_the_tree(tmp_path, monkeypa
 def _api(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
     monkeypatch.setattr(paths, "exe_dir", lambda: str(tmp_path / "app"))
-    return Api()
+    return Api(APP_VERSION)
 
 
 def test_delete_user_removes_safe_unprotected_folder(tmp_path, monkeypatch):

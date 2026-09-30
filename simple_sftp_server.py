@@ -24,6 +24,8 @@ from app.api import Api
 from app.paths import resource_path
 from app.services.prefs import _apply_window_rect, _restore_geometry, _save_geometry
 
+APP_VERSION = "1.6.0"
+
 
 # ───────────── main ─────────────
 _mutex_handle = None   # module-level: must live for the process lifetime
@@ -69,7 +71,7 @@ def main():
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("JDEProjects.SimpleSFTPServer")
         except Exception:
             pass
-    api = Api()
+    api = Api(APP_VERSION)
     geo = _restore_geometry()
     window = webview.create_window(
         "Simple SFTP Server", url=resource_path("simple_sftp_server-UI.html"),
