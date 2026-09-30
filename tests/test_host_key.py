@@ -68,6 +68,43 @@ def test_stray_temp_file_does_not_affect_the_loaded_key(tmp_path, monkeypatch):
     assert host_key_path.read_bytes() != stray.read_bytes()
 
 
+# ---- an older RSA key saved as host_ed25519 is kept ----
+
+def _write_rsa(path, bits):
+    import paramiko
+    key = paramiko.RSAKey.generate(bits)
+    key.write_private_key_file(str(path))
+    return key
+
+
+def test_rsa_host_key_in_ed25519_file_loads_and_is_left_untouched(tmp_path, monkeypatch):
+    from app.helpers import fingerprint_sha256
+
+    host_key_path = tmp_path / "host_ed25519"
+    original = _write_rsa(host_key_path, 2048)
+    before = host_key_path.read_bytes()
+    monkeypatch.setattr(paths, "HOST_KEY_FILE", str(host_key_path))
+
+    loaded = load_or_create_host_key()
+
+    assert loaded.get_name() == "ssh-rsa"
+    assert fingerprint_sha256(loaded) == fingerprint_sha256(original)
+    assert host_key_path.read_bytes() == before
+    assert not list(tmp_path.glob(".host_ed25519.*"))
+
+
+def test_weak_rsa_host_key_blocks_startup_and_is_left_untouched(tmp_path, monkeypatch):
+    host_key_path = tmp_path / "host_ed25519"
+    _write_rsa(host_key_path, 1024)
+    before = host_key_path.read_bytes()
+    monkeypatch.setattr(paths, "HOST_KEY_FILE", str(host_key_path))
+
+    with pytest.raises(HostKeyError):
+        load_or_create_host_key()
+
+    assert host_key_path.read_bytes() == before
+
+
 # ---- a host key that cannot be written refuses Start with a plain message ----
 
 def _start_service(tmp_path):

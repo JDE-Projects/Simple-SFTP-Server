@@ -41,12 +41,34 @@ def _write_atomic(data):
 
 
 # ───────────── host key ─────────────
+MIN_RSA_HOST_KEY_BITS = 2048
+
+
+def _load_legacy_rsa():
+    """Versions up to 1.5.0 could write an RSA key into host_ed25519 when
+    Ed25519 generation failed. Accept such a key if it is strong enough, so
+    that install keeps its identity. Returns None for anything else."""
+    try:
+        key = paramiko.RSAKey(filename=paths.HOST_KEY_FILE)
+    except Exception as e:
+        debug.log("host key RSA load failed", str(e))
+        return None
+    if key.get_bits() < MIN_RSA_HOST_KEY_BITS:
+        debug.log("host key RSA too small", key.get_bits())
+        return None
+    debug.log("host key loaded as RSA", key.get_bits())
+    return key
+
+
 def load_or_create_host_key():
     if os.path.exists(paths.HOST_KEY_FILE):
         try:
             return paramiko.Ed25519Key(filename=paths.HOST_KEY_FILE)
         except Exception as e:
             debug.log("host key load failed", str(e))
+            rsa_key = _load_legacy_rsa()
+            if rsa_key is not None:
+                return rsa_key
             raise HostKeyError(
                 f"host key file '{paths.HOST_KEY_FILE}' exists but could not be loaded"
             ) from e
