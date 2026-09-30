@@ -204,6 +204,22 @@ def test_write_failure_turns_logging_off_and_warns_without_raising(tmp_path, mon
     assert len(warnings) == 1
 
 
+def test_write_failure_warning_names_file_and_plain_reason(tmp_path, monkeypatch):
+    import app.debug_log as debug_log_module
+
+    warnings = []
+    dbg = DebugLog(str(tmp_path), "Test App", on_warning=warnings.append)
+    assert dbg.set_enabled(True)
+    name = os.path.basename(dbg._path)
+
+    def fake_open(file, mode="r", *args, **kwargs):
+        raise PermissionError(13, "Permission denied", file)
+
+    monkeypatch.setattr(debug_log_module, "open", fake_open, raising=False)
+    dbg.log("should fail")
+
+    assert warnings == [f"Debug log: write failed for {name} (Permission denied). Logging turned off."]
+
 def test_redact_is_applied_to_label_and_content(tmp_path):
     def redact(text):
         return re.sub(r"secret\w*", "[redacted]", text)

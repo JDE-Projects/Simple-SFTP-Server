@@ -162,9 +162,10 @@ class DebugLog:
                             f.write(entry_text)
                         self._current_size += len(entry_bytes)
                     except OSError as e:
+                        name = os.path.basename(self._path)
                         self._on = False
                         self._path = None
-                        warnings.append(f"Debug log: write failed ({e}). Logging turned off.")
+                        warnings.append(f"Debug log: write failed for {name} ({e.strerror or e}). Logging turned off.")
         self._emit(warnings)
 
     def _format_core(self, ts, label, content):
@@ -219,7 +220,7 @@ class DebugLog:
         try:
             entries = list(os.scandir(self.log_dir))
         except OSError as e:
-            return [f"Debug log: could not check {self.log_dir} for old logs ({e})."]
+            return [f"Debug log: could not check {self.log_dir} for old logs ({e.strerror or e})."]
 
         active_norm = os.path.normcase(os.path.abspath(active_path)) if active_path else None
 
