@@ -740,15 +740,17 @@ class SFTPService:
         # ip cannot both slip past the cap.
         with self._lock:
             if self._conn_count >= MAX_TOTAL_CONNECTIONS:
-                return False
+                return None
             if self._ip_counts.get(ip, 0) >= MAX_PER_IP_CONNECTIONS:
-                return False
+                return None
             self._conn_count += 1
             self._ip_counts[ip] = self._ip_counts.get(ip, 0) + 1
-            return True
+            return self._generation
 
-    def _release(self, ip):
+    def _release(self, ip, gen):
         with self._lock:
+            if gen != self._generation:
+                return
             self._conn_count = max(0, self._conn_count - 1)
             count = self._ip_counts.get(ip, 0) - 1
             if count <= 0:
@@ -787,7 +789,8 @@ class SFTPService:
                 except Exception:
                     pass
                 continue
-            if not self._admit(ip):
+            gen = self._admit(ip)
+            if gen is None:
                 self._log_rejected("capacity", ip)
                 try:
                     conn.close()
@@ -795,20 +798,19 @@ class SFTPService:
                     pass
                 continue
             try:
-                threading.Thread(target=self._handle, args=(conn, addr), daemon=True).start()
+                threading.Thread(target=self._handle, args=(conn, addr, gen), daemon=True).start()
             except Exception:
-                self._release(ip)
+                self._release(ip, gen)
                 try:
                     conn.close()
                 except Exception:
                     pass
 
-    def _handle(self, conn, addr):
+    def _handle(self, conn, addr, gen):
         ip = addr[0]
         with self._lock:
             self._sid += 1
             sid = self._sid
-            gen = self._generation
         t = None
         try:
             t = paramiko.Transport(conn, disabled_algorithms=DISABLED_ALGORITHMS)
@@ -863,7 +865,7 @@ class SFTPService:
                     existed = True
                     self._sessions.pop(sid, None)
                 self._conns.pop(sid, None)
-            self._release(ip)
+            self._release(ip, gen)
             if existed:
                 debug.log("client disconnected", {"ip": ip})
                 self._emit_status()
