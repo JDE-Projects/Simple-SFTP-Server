@@ -94,7 +94,7 @@ def _api_with_user(tmp_path, monkeypatch):
         started["called"] = True
         return {"ok": True, "port": port}
 
-    monkeypatch.setattr(api.service, "start", fake_start)
+    monkeypatch.setattr(api._service, "start", fake_start)
     return api, started
 
 

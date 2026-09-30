@@ -619,7 +619,7 @@ class SFTPService:
         self._pump_thread = None
 
     def find_user(self, username):
-        return self.api.find_user(username)
+        return self.api._find_user(username)
 
     def start(self, port, quick=False):
         if self.running:
@@ -993,9 +993,9 @@ class SFTPService:
         if status:
             self._emit_status()
         if acts:
-            self.api.emit("activity", acts)
+            self.api._emit("activity", acts)
         if had_trans:
-            self.api.emit("transfer", trans)
+            self.api._emit("transfer", trans)
 
     def _emit_status(self):
-        self.api.emit("status", self.api.status_payload())
+        self.api._emit("status", self.api._status_payload())

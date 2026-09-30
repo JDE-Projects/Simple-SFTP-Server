@@ -77,7 +77,7 @@ def test_save_user_edit_disconnects_that_account(tmp_path, monkeypatch):
     assert r["ok"], r
 
     calls = []
-    monkeypatch.setattr(api.service, "disconnect_user", lambda name: (calls.append(name), 1)[1])
+    monkeypatch.setattr(api._service, "disconnect_user", lambda name: (calls.append(name), 1)[1])
 
     r = api.save_user({"username": "bob", "home": str(home),
                         "permissions": _perms(download=False), "auth": "password",
@@ -99,7 +99,7 @@ def test_delete_user_disconnects_that_account(tmp_path, monkeypatch):
     assert r["ok"], r
 
     calls = []
-    monkeypatch.setattr(api.service, "disconnect_user", lambda name: (calls.append(name), 1)[1])
+    monkeypatch.setattr(api._service, "disconnect_user", lambda name: (calls.append(name), 1)[1])
 
     r = api.delete_user("bob")
     assert r["ok"], r
@@ -114,7 +114,7 @@ def test_create_user_does_not_disconnect(tmp_path, monkeypatch):
     home.mkdir()
 
     calls = []
-    monkeypatch.setattr(api.service, "disconnect_user", lambda name: (calls.append(name), 1)[1])
+    monkeypatch.setattr(api._service, "disconnect_user", lambda name: (calls.append(name), 1)[1])
 
     r = api.save_user({"username": "carol", "home": str(home),
                         "permissions": _perms(), "auth": "password",

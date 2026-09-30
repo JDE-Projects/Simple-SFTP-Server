@@ -199,8 +199,8 @@ def test_delete_user_refuses_to_delete_protected_folder(tmp_path, monkeypatch):
 
 def _quick_api(tmp_path, monkeypatch):
     api = _api(tmp_path, monkeypatch)
-    api.service.is_quick = True
-    monkeypatch.setattr(api.service, "stop", lambda: None)
+    api._service.is_quick = True
+    monkeypatch.setattr(api._service, "stop", lambda: None)
     return api
 
 
@@ -269,15 +269,15 @@ def test_stop_server_leaves_folder_when_delete_not_requested(tmp_path, monkeypat
 
 def _start_quick_for_status(api, monkeypatch):
     def start(_port, quick=False):
-        api.service.running = True
-        api.service.is_quick = quick
+        api._service.running = True
+        api._service.is_quick = quick
         return {"ok": True}
 
     def stop():
-        api.service.running = False
+        api._service.running = False
 
-    monkeypatch.setattr(api.service, "start", start)
-    monkeypatch.setattr(api.service, "stop", stop)
+    monkeypatch.setattr(api._service, "start", start)
+    monkeypatch.setattr(api._service, "stop", stop)
     monkeypatch.setattr(api, "_check_firewall_async", lambda _port: None)
 
 
@@ -289,14 +289,14 @@ def test_quick_folder_preexisting_status_tracks_folder_origin(tmp_path, monkeypa
 
     os.makedirs(quick_folder)
     assert api.quick_start()["ok"] is True
-    assert api.status_payload()["quick_folder_preexisting"] is True
+    assert api._status_payload()["quick_folder_preexisting"] is True
 
     assert api.stop_server(delete_folder=False)["ok"] is True
-    assert api.status_payload()["quick_folder_preexisting"] is False
+    assert api._status_payload()["quick_folder_preexisting"] is False
 
     shutil.rmtree(quick_folder)
     assert api.quick_start()["ok"] is True
-    assert api.status_payload()["quick_folder_preexisting"] is False
+    assert api._status_payload()["quick_folder_preexisting"] is False
 
 
 def test_quick_start_preexisting_folder_stop_keeps_or_deletes_contents(tmp_path, monkeypatch):

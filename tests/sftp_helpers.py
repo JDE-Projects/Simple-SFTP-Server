@@ -21,7 +21,7 @@ class CountingApi:
         self._lock = threading.Lock()
         self.counts = {}
 
-    def emit(self, event, payload):
+    def _emit(self, event, payload):
         with self._lock:
             self.counts[event] = self.counts.get(event, 0) + 1
 
@@ -29,10 +29,10 @@ class CountingApi:
         with self._lock:
             return sum(self.counts.values())
 
-    def status_payload(self):
+    def _status_payload(self):
         return {"running": True}
 
-    def find_user(self, username):
+    def _find_user(self, username):
         if self._users is not None:
             return self._users.get(username)
         if self._user is not None and username == self._user["username"]:

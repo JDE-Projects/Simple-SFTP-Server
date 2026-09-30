@@ -1,0 +1,60 @@
+{
+  "browse_save_key": [
+    "suggested"
+  ],
+  "check_port": [
+    "port"
+  ],
+  "check_update": [],
+  "delete_user": [
+    "username",
+    "delete_folder"
+  ],
+  "generate_keypair": [
+    "key_type",
+    "out_path",
+    "passphrase",
+    "username",
+    "overwrite"
+  ],
+  "get_meta": [],
+  "get_public_ip": [],
+  "get_status": [],
+  "get_theme": [],
+  "make_share_folder": [
+    "username"
+  ],
+  "new_password": [],
+  "open_url": [
+    "url"
+  ],
+  "pick_folder": [],
+  "quick_start": [],
+  "reveal_folder": [
+    "path"
+  ],
+  "reveal_quick_password": [],
+  "save_theme": [
+    "theme"
+  ],
+  "save_user": [
+    "p",
+    "original"
+  ],
+  "set_debug": [
+    "on"
+  ],
+  "start_server": [
+    "port"
+  ],
+  "stop_server": [
+    "delete_folder"
+  ],
+  "unlock_all": [],
+  "unlock_ip": [
+    "ip"
+  ],
+  "validate_username": [
+    "username"
+  ]
+}

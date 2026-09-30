@@ -75,7 +75,7 @@ def main():
         "Simple SFTP Server", url=resource_path("simple_sftp_server-UI.html"),
         js_api=api, width=1180, height=820, min_size=(980, 680),
         background_color="#0a0e14")
-    api.set_window(window)
+    api._set_window(window)
 
     if geo:
         # Restore the exact saved window rectangle once the window exists, via Win32

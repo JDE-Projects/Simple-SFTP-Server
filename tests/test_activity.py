@@ -9,13 +9,13 @@ from app.server import SFTPService
 class FakeApi:
     """Minimal stand-in for the real Api: no-op the methods SFTPService touches."""
 
-    def emit(self, event, payload):
+    def _emit(self, event, payload):
         pass
 
-    def status_payload(self):
+    def _status_payload(self):
         return {}
 
-    def find_user(self, username):
+    def _find_user(self, username):
         return None
 
 
