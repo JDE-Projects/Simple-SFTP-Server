@@ -1,8 +1,8 @@
-"""Phase 1 bookkeeping regression: SFTPService tracks every live Paramiko
-transport in a sid-keyed registry (app.server.SFTPService._conns), stamps each
-with the server generation it was accepted under, and clears the entry on
-disconnect. This is pure bookkeeping: it does not change stop() behavior or
-force any disconnects.
+"""Connection registry: SFTPService tracks every live Paramiko transport in a
+sid-keyed registry (app.server.SFTPService._conns), stamps each with the
+server generation it was accepted under, and clears the entry on disconnect.
+These tests cover the bookkeeping only; stop() and forced disconnects are
+covered in test_shutdown.py and test_revocation.py.
 """
 
 import time

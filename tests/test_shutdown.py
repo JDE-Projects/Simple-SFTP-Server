@@ -1,4 +1,4 @@
-"""Phase 2 authoritative shutdown: SFTPService.stop() actively closes every
+"""Authoritative shutdown: SFTPService.stop() actively closes every
 live connection and waits for all its threads to finish under one shared time
 budget before reporting stopped, so an immediate restart on the same port is
 clean.

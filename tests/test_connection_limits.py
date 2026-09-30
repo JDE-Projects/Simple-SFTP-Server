@@ -1,4 +1,4 @@
-"""Phase 1 connection admission: SFTPService bounds concurrent connections so a
+"""Connection admission: SFTPService bounds concurrent connections so a
 flood of clients that never finish logging in cannot spawn handler threads
 without limit. These tests exercise the admission bookkeeping (_admit /
 _release) directly, with no real sockets involved.
