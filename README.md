@@ -194,7 +194,7 @@ separately from Windows Defender Firewall.
   turned on, and when a file fills. It deletes only files named exactly like
   its own logs, and shows a warning if a log can't be written or an old one
   can't be deleted.
-- **Network use.** Other than the job you ask of it, this app makes one automatic network call: a check to GitHub for a newer release (at startup and when you press **Check for updates**), which sends only a version request. It collects and sends no personal data, usage data, or analytics.
+- **Network use.** Other than the job you ask of it, this app makes one automatic network call: a check to GitHub for a newer release (at startup and when you press **Check for updates**), which sends only a version request. When you press **Get** for the Public IP, the app sends a plain request to api.ipify.org and falls back to checkip.amazonaws.com if needed. That service necessarily sees your public IP address because that is how the lookup works. The app collects and sends no personal data, usage data, or analytics.
 
 ## A note on how this was built
 This project was built with AI assistance. The design decisions, feature
