@@ -457,6 +457,9 @@ class Api:
                 "connections": self.service.connections() if running else [],
                 "locked": self.service.lockout.locked_list(),
                 "quick_folder": paths.QUICK_FOLDER if self.service.is_quick else "",
+                "quick_folder_preexisting": bool(
+                    running and self.service.is_quick and self._quick_user and
+                    not self._quick_user.get("managed_folder")),
                 "firewall": self._firewall_state if running else None}
 
     def get_status(self):

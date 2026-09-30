@@ -2,6 +2,7 @@
 gate and its wiring into Api.delete_user."""
 
 import os
+import shutil
 import sys
 
 import pytest
@@ -264,6 +265,58 @@ def test_stop_server_leaves_folder_when_delete_not_requested(tmp_path, monkeypat
     assert result["ok"] is True
     assert "warning" not in result
     assert os.path.isdir(quick_folder)
+
+
+def _start_quick_for_status(api, monkeypatch):
+    def start(_port, quick=False):
+        api.service.running = True
+        api.service.is_quick = quick
+        return {"ok": True}
+
+    def stop():
+        api.service.running = False
+
+    monkeypatch.setattr(api.service, "start", start)
+    monkeypatch.setattr(api.service, "stop", stop)
+    monkeypatch.setattr(api, "_check_firewall_async", lambda _port: None)
+
+
+def test_quick_folder_preexisting_status_tracks_folder_origin(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    quick_folder = str(tmp_path / "QuickStart-Share")
+    monkeypatch.setattr(paths, "QUICK_FOLDER", quick_folder)
+    _start_quick_for_status(api, monkeypatch)
+
+    os.makedirs(quick_folder)
+    assert api.quick_start()["ok"] is True
+    assert api.status_payload()["quick_folder_preexisting"] is True
+
+    assert api.stop_server(delete_folder=False)["ok"] is True
+    assert api.status_payload()["quick_folder_preexisting"] is False
+
+    shutil.rmtree(quick_folder)
+    assert api.quick_start()["ok"] is True
+    assert api.status_payload()["quick_folder_preexisting"] is False
+
+
+def test_quick_start_preexisting_folder_stop_keeps_or_deletes_contents(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    quick_folder = str(tmp_path / "QuickStart-Share")
+    file_path = os.path.join(quick_folder, "file.txt")
+    monkeypatch.setattr(paths, "QUICK_FOLDER", quick_folder)
+    _start_quick_for_status(api, monkeypatch)
+
+    os.makedirs(quick_folder)
+    with open(file_path, "w") as f:
+        f.write("hello")
+    assert api.quick_start()["ok"] is True
+    assert api.stop_server(delete_folder=False)["ok"] is True
+    assert os.path.isdir(quick_folder)
+    assert os.path.isfile(file_path)
+
+    assert api.quick_start()["ok"] is True
+    assert api.stop_server(delete_folder=True)["ok"] is True
+    assert not os.path.isdir(quick_folder)
 
 
 # ---- Group 4: Phase 4 gap-fill (partial failure, open handles, managed end-to-end) ----
