@@ -8,6 +8,11 @@
       "script": "tools/ui_check/smoke.js",
       "fixture": "tools/ui_check/fixture.py",
       "timeout_s": 120
+    },
+    "start-errors": {
+      "script": "tools/ui_check/start_errors.js",
+      "fixture": "tools/ui_check/fixture_start_errors.py",
+      "timeout_s": 120
     }
   }
 }
