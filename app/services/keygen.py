@@ -1,5 +1,6 @@
 import io
 import os
+import uuid
 
 import paramiko
 
@@ -30,25 +31,51 @@ def generate_keypair(key_type, out_path, passphrase, username, overwrite=False):
             key.write_private_key(buf, password=passphrase or None)
             priv = buf.getvalue().encode()
             pub = f"ssh-rsa {key.get_base64()}".encode()
-        priv_existed = os.path.exists(out_path)
-        with open(out_path, "wb") as f:
-            f.write(priv)
-        try:
-            os.chmod(out_path, 0o600)
-        except OSError:
-            pass
         label = f"{username}@simple-sftp-server" if username else "simple-sftp-server"
         pubtext = pub.decode().strip() + " " + label
+        priv_tmp = out_path + f".tmp-{os.getpid()}-{uuid.uuid4().hex}"
+        pub_tmp = pub_path + f".tmp-{os.getpid()}-{uuid.uuid4().hex}"
+        priv_backup = None
         try:
-            with open(pub_path, "w", encoding="utf-8") as f:
+            with open(priv_tmp, "wb") as f:
+                f.write(priv)
+            try:
+                os.chmod(priv_tmp, 0o600)
+            except OSError:
+                pass
+            with open(pub_tmp, "w", encoding="utf-8") as f:
                 f.write(pubtext + "\n")
-        except Exception:
-            if not priv_existed:
+
+            if os.path.exists(out_path):
+                priv_backup = out_path + f".tmp-{os.getpid()}-{uuid.uuid4().hex}"
+                os.replace(out_path, priv_backup)
+            try:
+                os.replace(priv_tmp, out_path)
+                os.replace(pub_tmp, pub_path)
+            except Exception:
                 try:
-                    os.remove(out_path)
-                except OSError:
-                    pass
-            raise
+                    if priv_backup:
+                        os.replace(priv_backup, out_path)
+                    else:
+                        os.remove(out_path)
+                except Exception:
+                    debug.log("KEYGEN", {
+                        "restore_failed": True,
+                        "private_path": out_path,
+                        "backup_path": priv_backup,
+                        "public_path": pub_path,
+                    })
+                    # The backup is now the only copy of the old private
+                    # key, so it must survive the cleanup below.
+                    priv_backup = None
+                raise
+        finally:
+            for path in (priv_tmp, pub_tmp, priv_backup):
+                if path and os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
         debug.log("KEYGEN", {"type": key_type, "path": out_path})
         return {"ok": True, "public": pubtext, "private_path": out_path}
     except PermissionError:

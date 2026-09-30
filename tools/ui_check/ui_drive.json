@@ -1,0 +1,13 @@
+{
+  "entry": "simple_sftp_server.py",
+  "mutex": "JDE_SimpleSFTPServer_SingleInstance",
+  "window_title": "Simple SFTP Server",
+  "page_url_contains": "simple_sftp_server-UI.html",
+  "scenarios": {
+    "smoke": {
+      "script": "tools/ui_check/smoke.js",
+      "fixture": "tools/ui_check/fixture.py",
+      "timeout_s": 120
+    }
+  }
+}

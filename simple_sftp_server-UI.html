@@ -371,7 +371,11 @@
   <h3 id="cfTitle">Confirm</h3>
   <p id="cfText" style="font-size:12.5px;line-height:1.5;color:var(--text);white-space:pre-line;margin:0 0 16px"></p>
   <div id="cfFolderRow" style="display:none;margin-bottom:14px">
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px" id="cfFolderLabel"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <div style="flex:1;min-width:0;font-size:11px;color:var(--text-dim);overflow-wrap:anywhere" id="cfFolderLabel"></div>
+      <button id="cfOpenFolder" class="cp" style="flex:none">Open folder</button>
+    </div>
+    <div id="cfFolderWarning" style="display:none;font-size:11px;color:var(--amber);margin-bottom:10px">This folder existed before this Quick Start started. Check its contents before deleting.</div>
     <div style="display:flex;gap:8px">
       <button id="cfKeep" class="btn-ghost" style="flex:1">Keep folder &amp; files</button>
       <button id="cfDelete" class="btn-danger" style="flex:1">Delete folder &amp; files</button>
@@ -559,6 +563,7 @@ async function onStop(){
     showConfirmStop("Stop Quick Start server?",
       "This will disconnect all clients and stop the server.",
       cur?cur.quick_folder:"",
+      !!(cur&&cur.quick_folder_preexisting),
       async(deleteFolder)=>{
         setBusy(true);
         const r=await API.stop_server(deleteFolder);
@@ -612,6 +617,8 @@ function showSimpleConfirm(title, text, onOk){
   $("cfTitle").textContent=title;
   $("cfText").textContent=text;
   $("cfFolderRow").style.display="none";
+  $("cfOpenFolder").style.display="none";
+  $("cfFolderWarning").style.display="none";
   $("cfSimpleRow").style.display="flex";
   $("cfOk").textContent="Confirm";
   openModal("confirmModal",{focus:"cfCancel"});
@@ -619,13 +626,18 @@ function showSimpleConfirm(title, text, onOk){
   $("cfOk").onclick=()=>{closeModal("confirmModal");onOk();};
 }
 
-function showConfirmStop(title, text, folderPath, onDecide){
+function showConfirmStop(title, text, folderPath, folderPreexisting, onDecide){
   $("cfTitle").textContent=title;
   $("cfText").textContent=text;
   $("cfFolderRow").style.display="block";
   $("cfSimpleRow").style.display="none";
   $("cfFolderLabel").textContent=folderPath?"Share folder: "+folderPath:"";
+  $("cfOpenFolder").style.display=folderPath?"block":"none";
+  $("cfFolderWarning").style.display=folderPreexisting?"block":"none";
+  $("cfKeep").textContent="Keep folder & files";
+  $("cfDelete").textContent="Delete folder & files";
   openModal("confirmModal",{focus:"cfKeep"});
+  $("cfOpenFolder").onclick=()=>API.reveal_folder(folderPath);
   $("cfKeep").onclick=()=>{closeModal("confirmModal");onDecide(false);};
   $("cfDelete").onclick=()=>{closeModal("confirmModal");onDecide(true);};
 }
@@ -889,6 +901,8 @@ function confirmDeleteUser(u){
   const dw=disconnectWarning(u.username);
   if(dw) $("cfText").textContent += "\n\n"+dw;
   $("cfFolderRow").style.display="block";
+  $("cfOpenFolder").style.display="none";
+  $("cfFolderWarning").style.display="none";
   $("cfSimpleRow").style.display="none";
   if(home&&!u.managed_folder){
     $("cfFolderLabel").textContent="User folder: "+home+". This app did not create this folder. Deleting it removes it and everything inside, permanently.";
