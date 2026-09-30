@@ -10,6 +10,7 @@ import time
 from app import paths
 from app.api import Api
 from app.server import DEFAULT_PERMISSIONS
+from simple_sftp_server import APP_VERSION
 from tests.sftp_helpers import free_port, make_host_key, make_user, sftp_password
 
 
@@ -52,8 +53,8 @@ def test_stop_tears_down_a_mid_flight_transfer(tmp_path, sftp_server):
 def test_quick_start_teardown(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
     monkeypatch.setattr(paths, "QUICK_FOLDER", str(tmp_path / "quick"))
-    api = Api()
-    api.service.host_key = make_host_key(tmp_path)
+    api = Api(APP_VERSION)
+    api._service.host_key = make_host_key(tmp_path)
 
     port = free_port()
     api._save_config({"settings": {"port": port}, "users": []})
@@ -64,22 +65,22 @@ def test_quick_start_teardown(tmp_path, monkeypatch):
 
     client, sftp = sftp_password(port, "quickstart", password)
     try:
-        assert len(api.service.active_conns()) == 1
+        assert len(api._service.active_conns()) == 1
     finally:
         client.close()
 
     api.stop_server()
-    assert api.service.running is False
-    assert api.service.active_conns() == []
+    assert api._service.running is False
+    assert api._service.active_conns() == []
     assert api._quick_user is None
-    assert api.service._accept_thread is None
-    assert api.service._pump_thread is None
+    assert api._service._accept_thread is None
+    assert api._service._pump_thread is None
 
 
 def test_revoking_a_user_kicks_their_live_client(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
-    api = Api()
-    api.service.host_key = make_host_key(tmp_path)
+    api = Api(APP_VERSION)
+    api._service.host_key = make_host_key(tmp_path)
 
     home = tmp_path / "bob"
     home.mkdir()
@@ -89,20 +90,20 @@ def test_revoking_a_user_kicks_their_live_client(tmp_path, monkeypatch):
     assert r["ok"], r
 
     port = free_port()
-    r = api.service.start(port)
+    r = api._service.start(port)
     assert r["ok"], r
 
     client = None
     try:
         client, sftp = sftp_password(port, "bob", "correct horse battery staple")
-        assert len(api.service.active_conns()) == 1
+        assert len(api._service.active_conns()) == 1
 
         r = api.save_user({"username": "bob", "home": str(home),
                             "permissions": _perms(download=False), "auth": "password",
                             "password": "a new horse battery staple"}, original="bob")
         assert r["ok"], r
 
-        assert api.service.active_conns() == []
+        assert api._service.active_conns() == []
 
         deadline = time.time() + 2
         transport = client.get_transport()
@@ -113,4 +114,4 @@ def test_revoking_a_user_kicks_their_live_client(tmp_path, monkeypatch):
     finally:
         if client is not None:
             client.close()
-        api.service.stop()
+        api._service.stop()

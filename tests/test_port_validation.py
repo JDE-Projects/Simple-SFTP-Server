@@ -5,11 +5,12 @@ from app import paths
 from app.api import Api
 from app.constants import DEFAULT_PORT
 from app.services.network import valid_port
+from simple_sftp_server import APP_VERSION
 
 
 def _api(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
-    return Api()
+    return Api(APP_VERSION)
 
 
 # ---- valid_port() ----
@@ -94,7 +95,7 @@ def _api_with_user(tmp_path, monkeypatch):
         started["called"] = True
         return {"ok": True, "port": port}
 
-    monkeypatch.setattr(api.service, "start", fake_start)
+    monkeypatch.setattr(api._service, "start", fake_start)
     return api, started
 
 

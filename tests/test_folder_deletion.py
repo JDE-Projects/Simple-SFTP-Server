@@ -6,12 +6,13 @@ import os
 
 from app import paths
 from app.api import Api
+from simple_sftp_server import APP_VERSION
 
 
 def _api(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
     monkeypatch.setattr(paths, "exe_dir", lambda: str(tmp_path))
-    return Api()
+    return Api(APP_VERSION)
 
 
 def _save(api, username, home, password="Sup3rSecretPass!"):
@@ -124,7 +125,7 @@ def test_quick_start_marks_folder_it_creates(tmp_path, monkeypatch):
     api = _api(tmp_path, monkeypatch)
     quick_folder = str(tmp_path / "QuickStart-Share")
     monkeypatch.setattr(paths, "QUICK_FOLDER", quick_folder)
-    monkeypatch.setattr(api.service, "start", lambda *a, **k: {"ok": True})
+    monkeypatch.setattr(api._service, "start", lambda *a, **k: {"ok": True})
 
     r = api.quick_start()
     assert r["ok"] is True
@@ -137,7 +138,7 @@ def test_quick_start_does_not_mark_preexisting_folder(tmp_path, monkeypatch):
     quick_folder = str(tmp_path / "QuickStart-Share")
     os.makedirs(quick_folder)
     monkeypatch.setattr(paths, "QUICK_FOLDER", quick_folder)
-    monkeypatch.setattr(api.service, "start", lambda *a, **k: {"ok": True})
+    monkeypatch.setattr(api._service, "start", lambda *a, **k: {"ok": True})
 
     r = api.quick_start()
     assert r["ok"] is True

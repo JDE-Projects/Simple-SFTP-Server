@@ -11,11 +11,12 @@ from app import paths
 from app.api import Api
 from app.constants import DEFAULT_PORT
 from app.server import JailedSFTP, Lockout, ServerIface, perms_for
+from simple_sftp_server import APP_VERSION
 
 
 def _api(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
-    return Api()
+    return Api(APP_VERSION)
 
 
 # ---- FIX 1: delete_user must not silently ignore a failed config write ----

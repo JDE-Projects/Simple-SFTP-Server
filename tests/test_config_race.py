@@ -9,11 +9,12 @@ import threading
 from app import paths
 from app.api import Api
 from app.constants import DEFAULT_PORT
+from simple_sftp_server import APP_VERSION
 
 
 def _api(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
-    return Api()
+    return Api(APP_VERSION)
 
 
 def test_concurrent_delete_user_does_not_lose_a_deletion(tmp_path, monkeypatch):

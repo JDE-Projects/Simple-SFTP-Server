@@ -11,7 +11,7 @@ import paramiko
 
 from app import paths
 from app.atomic import atomic_write_json
-from app.constants import APP_VERSION, DEFAULT_PORT, GITHUB_REPO
+from app.constants import DEFAULT_PORT, GITHUB_REPO
 from app.debug_log import debug
 from app.helpers import fingerprint_sha256, friendly_error
 from app.server import DEFAULT_PERMISSIONS, QUICK_PERMISSIONS, SFTPService, perms_for
@@ -44,9 +44,10 @@ def _valid_authorized_key(line):
 
 # ───────────── js api ─────────────
 class Api:
-    def __init__(self):
+    def __init__(self, app_version):
+        self._app_version = app_version
         self._window = None
-        self.service = SFTPService(self)
+        self._service = SFTPService(self)
         self._quick_user = None
         self._quick_password = ""
         self._firewall_state = None
@@ -56,10 +57,10 @@ class Api:
         # folder deletion later; this is tracking only, no deletion here.
         self._app_created_shares = set()
 
-    def set_window(self, w):
+    def _set_window(self, w):
         self._window = w
 
-    def emit(self, event, payload):
+    def _emit(self, event, payload):
         if self._window:
             try:
                 self._window.evaluate_js(
@@ -73,7 +74,7 @@ class Api:
         cfg = self._load_config()
         warning = getattr(self, "_config_warning", None)
         self._config_warning = None
-        return {"version": APP_VERSION, "key_types": ["Ed25519", "RSA-4096"],
+        return {"version": self._app_version, "key_types": ["Ed25519", "RSA-4096"],
                 "default_port": DEFAULT_PORT, "settings": cfg.get("settings", {}),
                 "users": self._public_users(cfg), "config_warning": warning}
 
@@ -150,7 +151,7 @@ class Api:
                         "managed_folder": bool(u.get("managed_folder"))})
         return out
 
-    def find_user(self, username):
+    def _find_user(self, username):
         if self._quick_user and username == self._quick_user["username"]:
             return self._quick_user
         for u in self._load_config().get("users", []):
@@ -300,7 +301,7 @@ class Api:
         if existing is not None:
             for nm in {original or username, username}:
                 if nm:
-                    dropped += self.service.disconnect_user(nm)
+                    dropped += self._service.disconnect_user(nm)
         return {"ok": True, "users": self._public_users(cfg), "disconnected": dropped}
 
     def delete_user(self, username, delete_folder=False):
@@ -310,7 +311,7 @@ class Api:
             cfg["users"] = [u for u in cfg.get("users", []) if u.get("username") != username]
             if not self._save_config(cfg):
                 return {"ok": False, "error": "Could not write the config file."}
-        dropped = self.service.disconnect_user(username)
+        dropped = self._service.disconnect_user(username)
         warning = None
         if delete_folder and user_rec:
             home = user_rec.get("home", "")
@@ -355,7 +356,7 @@ class Api:
         # failure inside _firewall_status is caught there and returns "unknown".
         def worker():
             self._firewall_state = _firewall_status(port)
-            self.emit("status", self.status_payload())
+            self._emit("status", self._status_payload())
         threading.Thread(target=worker, daemon=True).start()
 
     def start_server(self, port):
@@ -371,9 +372,9 @@ class Api:
                 saved = self._save_config(cfg)
             except Exception:
                 saved = False
-        r = self.service.start(use_port, quick=False)
+        r = self._service.start(use_port, quick=False)
         if r.get("ok"):
-            self.emit("status", self.status_payload())
+            self._emit("status", self._status_payload())
             self._check_firewall_async(use_port)
             if not saved:
                 r["warning"] = ("The server started on port " + str(use_port) +
@@ -382,9 +383,9 @@ class Api:
         return r
 
     def stop_server(self, delete_folder=False):
-        was_quick = self.service.is_quick
+        was_quick = self._service.is_quick
         quick_folder = paths.QUICK_FOLDER if was_quick else ""
-        self.service.stop()
+        self._service.stop()
         self._firewall_state = None
         self._quick_user = None
         self._quick_password = ""
@@ -408,13 +409,13 @@ class Api:
                                    "Some files may remain; please delete it by hand.")
                     else:
                         debug.log("quick folder deleted", quick_folder)
-        result = {"ok": True, "status": self.status_payload()}
+        result = {"ok": True, "status": self._status_payload()}
         if warning:
             result["warning"] = warning
         return result
 
     def quick_start(self):
-        if self.service.running:
+        if self._service.running:
             return {"ok": False, "error": "Stop the running server first."}
         # A folder counts as managed only if this call actually created it, the
         # same rule make_share_folder follows. If the reserved Quick Start folder
@@ -436,37 +437,37 @@ class Api:
         ok, port, _error = valid_port(cfg.get("settings", {}).get("port", DEFAULT_PORT))
         if not ok:
             port = DEFAULT_PORT
-        r = self.service.start(port, quick=True)
+        r = self._service.start(port, quick=True)
         if not r.get("ok"):
             self._quick_user = None
             self._quick_password = ""
             return r
-        self.emit("status", self.status_payload())
+        self._emit("status", self._status_payload())
         self._check_firewall_async(port)
         return {"ok": True, "port": port, "folder": paths.QUICK_FOLDER, "username": "quickstart"}
 
     def reveal_quick_password(self):
-        if self.service.running and self.service.is_quick:
+        if self._service.running and self._service.is_quick:
             return {"ok": True, "password": self._quick_password}
         return {"ok": False}
 
     # ---- status / network ----
-    def status_payload(self):
-        running = self.service.running
-        return {"running": running, "quick": self.service.is_quick,
-                "port": self.service.port,
+    def _status_payload(self):
+        running = self._service.running
+        return {"running": running, "quick": self._service.is_quick,
+                "port": self._service.port,
                 "lan": lan_ip() if running else "",
-                "fingerprint": fingerprint_sha256(self.service.host_key) if self.service.host_key else "",
-                "connections": self.service.connections() if running else [],
-                "locked": self.service.lockout.locked_list(),
-                "quick_folder": paths.QUICK_FOLDER if self.service.is_quick else "",
+                "fingerprint": fingerprint_sha256(self._service.host_key) if self._service.host_key else "",
+                "connections": self._service.connections() if running else [],
+                "locked": self._service.lockout.locked_list(),
+                "quick_folder": paths.QUICK_FOLDER if self._service.is_quick else "",
                 "quick_folder_preexisting": bool(
-                    running and self.service.is_quick and self._quick_user and
+                    running and self._service.is_quick and self._quick_user and
                     not self._quick_user.get("managed_folder")),
                 "firewall": self._firewall_state if running else None}
 
     def get_status(self):
-        return self.status_payload()
+        return self._status_payload()
 
     def get_public_ip(self):
         ip = public_ip()
@@ -480,16 +481,16 @@ class Api:
 
     # ---- lockout ----
     def unlock_ip(self, ip):
-        self.service.lockout.clear(ip)
-        return {"ok": True, "status": self.status_payload()}
+        self._service.lockout.clear(ip)
+        return {"ok": True, "status": self._status_payload()}
 
     def unlock_all(self):
-        self.service.lockout.clear_all()
-        return {"ok": True, "status": self.status_payload()}
+        self._service.lockout.clear_all()
+        return {"ok": True, "status": self._status_payload()}
 
     # ---- update / misc ----
     def check_update(self):
-        return _check_update(APP_VERSION, GITHUB_REPO)
+        return _check_update(self._app_version, GITHUB_REPO)
 
     def open_url(self, url):
         try:

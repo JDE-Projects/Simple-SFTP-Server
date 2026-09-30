@@ -10,6 +10,7 @@ from app import paths
 from app.api import Api
 from app.constants import DEFAULT_PORT
 from app.server import DEFAULT_PERMISSIONS
+from simple_sftp_server import APP_VERSION
 from tests.sftp_helpers import make_user, sftp_password
 
 
@@ -21,7 +22,7 @@ def _perms(**overrides):
 
 def _api(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
-    return Api()
+    return Api(APP_VERSION)
 
 
 def _seed_config(tmp_path, api):
@@ -77,7 +78,7 @@ def test_save_user_edit_disconnects_that_account(tmp_path, monkeypatch):
     assert r["ok"], r
 
     calls = []
-    monkeypatch.setattr(api.service, "disconnect_user", lambda name: (calls.append(name), 1)[1])
+    monkeypatch.setattr(api._service, "disconnect_user", lambda name: (calls.append(name), 1)[1])
 
     r = api.save_user({"username": "bob", "home": str(home),
                         "permissions": _perms(download=False), "auth": "password",
@@ -99,7 +100,7 @@ def test_delete_user_disconnects_that_account(tmp_path, monkeypatch):
     assert r["ok"], r
 
     calls = []
-    monkeypatch.setattr(api.service, "disconnect_user", lambda name: (calls.append(name), 1)[1])
+    monkeypatch.setattr(api._service, "disconnect_user", lambda name: (calls.append(name), 1)[1])
 
     r = api.delete_user("bob")
     assert r["ok"], r
@@ -114,7 +115,7 @@ def test_create_user_does_not_disconnect(tmp_path, monkeypatch):
     home.mkdir()
 
     calls = []
-    monkeypatch.setattr(api.service, "disconnect_user", lambda name: (calls.append(name), 1)[1])
+    monkeypatch.setattr(api._service, "disconnect_user", lambda name: (calls.append(name), 1)[1])
 
     r = api.save_user({"username": "carol", "home": str(home),
                         "permissions": _perms(), "auth": "password",

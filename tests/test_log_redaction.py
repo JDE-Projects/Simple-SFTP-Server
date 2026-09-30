@@ -11,6 +11,7 @@ import json
 from app import paths
 from app.api import Api
 from app.debug_log import DebugLog, _redact
+from simple_sftp_server import APP_VERSION
 
 
 # ---- _redact() ----
@@ -74,7 +75,7 @@ def test_log_write_redacts_secret(tmp_path, monkeypatch):
 
 def test_new_password_returns_without_retaining(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CONFIG_FILE", str(tmp_path / "server_config.json"))
-    api = Api()
+    api = Api(APP_VERSION)
     result = api.new_password()
     assert result["password"]
     assert len(result["password"]) == 20
