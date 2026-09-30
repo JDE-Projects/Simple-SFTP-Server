@@ -1,1 +1,3 @@
 Getting started: Launch Simple SFTP Server, then click Quick Start to bring a share live instantly - reveal the password and share the connection details it displays (address, port, and sign-in info). For tighter control, add a user with their own folder and access mode instead, then press Start and share those same details.
+
+Public IP: pressing Get sends a plain request to api.ipify.org, or checkip.amazonaws.com if that fails. That service sees your public IP address, because that is how the lookup works. Nothing else is sent.
