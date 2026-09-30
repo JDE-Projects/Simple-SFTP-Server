@@ -312,6 +312,7 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             # os.path.realpath("") resolve to the current working directory.
             self.root = None
         self.perm = perms_for(self.user) if self.user else dict(DEFAULT_PERMISSIONS)
+        self._uploaded_paths = set()
 
     def _progress(self, handle):
         if self.service:
@@ -409,6 +410,8 @@ class JailedSFTP(paramiko.SFTPServerInterface):
         except OSError as e:
             os.close(fd)
             return paramiko.SFTPServer.convert_errno(e.errno)
+        if writing:
+            self._uploaded_paths.add(real)
         direction = "download" if (reading and not writing) else "upload"
         if self.service:
             self.service.note_op(self.sid, "downloading" if direction == "download" else "uploading", path)
@@ -441,6 +444,7 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             return paramiko.SFTP_PERMISSION_DENIED
         try:
             os.remove(real)
+            self._uploaded_paths.discard(real)
             if self.service:
                 self.service.activity(self.sid, "deleted", os.path.basename(real))
             return paramiko.SFTP_OK
@@ -461,6 +465,30 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             return paramiko.SFTP_PERMISSION_DENIED
         try:
             os.rename(o, n)
+            # The file now at n is whatever was at o, so n's old record no
+            # longer applies.
+            self._uploaded_paths.discard(n)
+            if o in self._uploaded_paths:
+                self._uploaded_paths.remove(o)
+                self._uploaded_paths.add(n)
+            return paramiko.SFTP_OK
+        except OSError as e:
+            return paramiko.SFTPServer.convert_errno(e.errno)
+
+    def chattr(self, path, attr):
+        if self.service:
+            self.service.note_op(self.sid, "setting file date", path)
+        real = self._real(path)
+        if real is None:
+            return paramiko.SFTP_PERMISSION_DENIED
+        if not self.perm["upload"]:
+            return paramiko.SFTP_PERMISSION_DENIED
+        if real not in self._uploaded_paths or not os.path.isfile(real):
+            return paramiko.SFTP_PERMISSION_DENIED
+        if attr._flags != paramiko.SFTPAttributes.FLAG_AMTIME:
+            return paramiko.SFTP_OP_UNSUPPORTED
+        try:
+            os.utime(real, (attr.st_atime, attr.st_mtime))
             return paramiko.SFTP_OK
         except OSError as e:
             return paramiko.SFTPServer.convert_errno(e.errno)
