@@ -143,11 +143,13 @@
   .tag{font-size:10px;color:var(--text-dim);background:var(--panel-2);border:1px solid var(--border-2);padding:2px 7px;border-radius:20px;}
 
   /* bottom bar */
-  .statusbar{display:flex;align-items:center;font-size:11px;color:var(--text-dim);padding:8px 14px;
+  /* equal side columns keep the update notice on the window's true center,
+     however wide the version and button on the right are */
+  .statusbar{display:grid;grid-template-columns:1fr minmax(0,auto) 1fr;align-items:center;gap:10px;font-size:11px;color:var(--text-dim);padding:8px 14px;
     background:linear-gradient(180deg,var(--panel),var(--bg-2));border:1px solid var(--border);border-radius:var(--radius);}
-  .bar-left{display:flex;align-items:center;gap:14px;flex:none;}
-  .bar-center{flex:1;display:flex;align-items:center;justify-content:center;}
-  .bar-right{display:flex;align-items:center;gap:12px;flex:none;}
+  .bar-left{display:flex;align-items:center;gap:14px;}
+  .bar-center{display:flex;align-items:center;justify-content:center;min-width:0;}
+  .bar-right{display:flex;align-items:center;justify-content:flex-end;gap:12px;}
   .toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer;}
   .toggle input{position:absolute;opacity:0;pointer-events:none;margin:0;}
   .switch{width:32px;height:17px;border-radius:9px;background:var(--panel-2);border:1px solid var(--border-2);position:relative;transition:background .15s,border-color .15s;}
