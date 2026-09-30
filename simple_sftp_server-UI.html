@@ -492,6 +492,15 @@ window.appEvent=function(ev,p){
   else if(ev==="activity"){onActivity(p);}
 };
 
+// Debug log warnings (a failed write, an old log that could not be deleted)
+// arrive through drain_debug_warnings() and set_debug(). A warning is the only
+// time the switch is re-synced, since a failed write turns logging off.
+function showDebugWarnings(list,enabled){
+  if(!(list&&list.length))return;
+  toast(list.join(" "),"warn");
+  $("debugChk").checked=!!enabled;
+}
+
 async function init(){
   API=window.pywebview.api;
   await initTheme();
@@ -529,11 +538,14 @@ async function init(){
   $("kgGo").onclick=onKeygen;
   $("kgCopy").onclick=()=>{copyText($("kgPub").textContent);toast("Public key copied");};
 
-  $("debugChk").onchange=async()=>{const on=$("debugChk").checked;const r=await API.set_debug(on);$("debugChk").checked=r.enabled;toast(r.enabled?"Debug log on":"Debug log off");};
+  $("debugChk").onchange=async()=>{const on=$("debugChk").checked;const r=await API.set_debug(on);$("debugChk").checked=r.enabled;showDebugWarnings(r.warnings,r.enabled);if(!(r.warnings&&r.warnings.length))toast(r.enabled?"Debug log on":"Debug log off");};
   $("updateBtn").onclick=()=>doUpdate(true);
   $("updateErrClose").onclick=closeUpdateErrorModal;
 
   applyStatus(await API.get_status());
+  const drainDebug=async()=>{const r=await API.drain_debug_warnings();showDebugWarnings(r.warnings,r.enabled);};
+  await drainDebug();
+  setInterval(drainDebug,3000);
   tickTimer=setInterval(tick,1000);
   doUpdate(false);
 }

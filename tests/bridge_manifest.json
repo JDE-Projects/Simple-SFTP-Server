@@ -10,6 +10,7 @@
     "username",
     "delete_folder"
   ],
+  "drain_debug_warnings": [],
   "generate_keypair": [
     "key_type",
     "out_path",

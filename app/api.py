@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import threading
+import traceback
 import webbrowser
 from datetime import datetime, timezone
 
@@ -52,6 +53,8 @@ class Api:
         self._quick_password = ""
         self._firewall_state = None
         self._cfg_lock = threading.Lock()
+        self._debug_warnings = []
+        self._debug_warnings_lock = threading.Lock()
         # Paths created by make_share_folder (or Quick Start) during this run,
         # normalized. Only these are ever eligible to be offered for recursive
         # folder deletion later; this is tracking only, no deletion here.
@@ -81,7 +84,21 @@ class Api:
     def set_debug(self, on):
         ok = debug.set_enabled(on)
         debug.log("Debug enabled" if on and ok else "Debug disabled")
-        return {"ok": ok, "enabled": debug.is_enabled()}
+        return {"ok": ok, "enabled": debug.is_enabled(),
+                "warnings": self._drain_debug_warnings()}
+
+    def _on_debug_warning(self, msg):
+        with self._debug_warnings_lock:
+            self._debug_warnings.append(msg)
+
+    def _drain_debug_warnings(self):
+        with self._debug_warnings_lock:
+            warnings = self._debug_warnings
+            self._debug_warnings = []
+        return warnings
+
+    def drain_debug_warnings(self):
+        return {"warnings": self._drain_debug_warnings(), "enabled": debug.is_enabled()}
 
     # ---- theme persistence ----
     def get_theme(self):
@@ -360,6 +377,13 @@ class Api:
         threading.Thread(target=worker, daemon=True).start()
 
     def start_server(self, port):
+        try:
+            return self._start_server(port)
+        except Exception:
+            debug.log("start server failed", traceback.format_exc())
+            raise
+
+    def _start_server(self, port):
         ok, use_port, error = valid_port(port)
         if not ok:
             return {"ok": False, "error": error}
@@ -383,6 +407,13 @@ class Api:
         return r
 
     def stop_server(self, delete_folder=False):
+        try:
+            return self._stop_server(delete_folder)
+        except Exception:
+            debug.log("stop server failed", traceback.format_exc())
+            raise
+
+    def _stop_server(self, delete_folder=False):
         was_quick = self._service.is_quick
         quick_folder = paths.QUICK_FOLDER if was_quick else ""
         self._service.stop()
@@ -415,6 +446,13 @@ class Api:
         return result
 
     def quick_start(self):
+        try:
+            return self._quick_start()
+        except Exception:
+            debug.log("quick start failed", traceback.format_exc())
+            raise
+
+    def _quick_start(self):
         if self._service.running:
             return {"ok": False, "error": "Stop the running server first."}
         # A folder counts as managed only if this call actually created it, the

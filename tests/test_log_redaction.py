@@ -60,9 +60,8 @@ def test_redact_handles_empty():
 
 # ---- log() writes redacted content ----
 
-def test_log_write_redacts_secret(tmp_path, monkeypatch):
-    monkeypatch.setattr("app.debug_log.exe_dir", lambda: str(tmp_path))
-    log = DebugLog()
+def test_log_write_redacts_secret(tmp_path):
+    log = DebugLog(str(tmp_path), "Simple SFTP Server", redact=_redact)
     assert log.set_enabled(True) is True
     log.log("auth attempt", {"user": "amy", "password": "hunter2"})
     written = (tmp_path).glob("Debug_Log_*.txt")

@@ -23,6 +23,7 @@ import shlex
 import sys
 
 from app.api import Api
+from app.debug_log import debug
 from app.paths import resource_path
 from app.services.prefs import _apply_window_rect, _restore_geometry, _save_geometry
 
@@ -133,6 +134,8 @@ def main():
         except Exception:
             pass
     api = Api(APP_VERSION)
+    debug.on_warning = api._on_debug_warning
+    debug.prune()
     geo = _restore_geometry()
     window = webview.create_window(
         "Simple SFTP Server", url=resource_path("simple_sftp_server-UI.html"),

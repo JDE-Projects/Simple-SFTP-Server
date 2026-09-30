@@ -188,7 +188,12 @@ separately from Windows Defender Firewall.
 - The optional debug log is off by default; when on it writes
   `Debug_Log_MMDDYYYY_HHMMSS.txt` next to the app. It records activity and
   errors but no passwords or key material, and a redaction pass on every entry
-  enforces that even for captured error traces.
+  enforces that even for captured error traces. Each file stops at 5 MiB and
+  logging continues in a new file. The app keeps the current file plus up to 3
+  older ones (20 MiB at most), deleting the oldest at launch, when logging is
+  turned on, and when a file fills. It deletes only files named exactly like
+  its own logs, and shows a warning if a log can't be written or an old one
+  can't be deleted.
 - **Network use.** Other than the job you ask of it, this app makes one automatic network call: a check to GitHub for a newer release (at startup and when you press **Check for updates**), which sends only a version request. It collects and sends no personal data, usage data, or analytics.
 
 ## A note on how this was built

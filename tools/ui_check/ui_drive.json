@@ -13,6 +13,11 @@
       "script": "tools/ui_check/start_errors.js",
       "fixture": "tools/ui_check/fixture_start_errors.py",
       "timeout_s": 120
+    },
+    "debug-log": {
+      "script": "tools/ui_check/debug_log.js",
+      "fixture": "tools/ui_check/fixture_debug_log.py",
+      "timeout_s": 120
     }
   }
 }
