@@ -547,12 +547,21 @@ function togglePwVisible(){
 }
 
 /* ---------- start / stop / quick ---------- */
-async function onStart(){
+// Runs a backend call with Start/Stop/Quick/Check disabled, and always turns
+// them back on. Returns null (after an error toast) if the call itself failed.
+async function busyCall(fn,failMsg){
   setBusy(true);
-  const r=await API.start_server($("port").value.trim());
-  setBusy(false);
+  try{return await fn();}
+  catch(e){toast(failMsg+" Turn on the debug log for details.",true);return null;}
+  finally{setBusy(false);}
+}
+
+async function onStart(){
+  const r=await busyCall(()=>API.start_server($("port").value.trim()),"Could not start the server.");
+  if(!r)return;
   if(!r.ok){toast(r.error||"Could not start.",true);return;}
-  toast("Server started.");
+  if(r.warning)toast(r.warning,"warn");
+  else toast("Server started.");
 }
 
 async function onStop(){
@@ -565,9 +574,8 @@ async function onStop(){
       cur?cur.quick_folder:"",
       !!(cur&&cur.quick_folder_preexisting),
       async(deleteFolder)=>{
-        setBusy(true);
-        const r=await API.stop_server(deleteFolder);
-        setBusy(false);
+        const r=await busyCall(()=>API.stop_server(deleteFolder),"Could not stop the server.");
+        if(!r)return;
         pwShown=false;
         if(r.status)applyStatus(r.status);
         if(r.warning)toast(r.warning,"warn");
@@ -578,9 +586,8 @@ async function onStop(){
     showSimpleConfirm("Stop server?",
       "This will disconnect all clients and stop the server.",
       async()=>{
-        setBusy(true);
-        const r=await API.stop_server(false);
-        setBusy(false);
+        const r=await busyCall(()=>API.stop_server(false),"Could not stop the server.");
+        if(!r)return;
         pwShown=false;
         if(r.status)applyStatus(r.status);
         toast("Server stopped.");
@@ -589,9 +596,8 @@ async function onStop(){
 }
 
 async function onQuick(){
-  setBusy(true);
-  const r=await API.quick_start();
-  setBusy(false);
+  const r=await busyCall(()=>API.quick_start(),"Could not start Quick Start.");
+  if(!r)return;
   if(!r.ok){toast(r.error||"Could not start Quick Start.",true);return;}
   toast("Quick Start running. Password is in the card.");
 }

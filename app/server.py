@@ -6,6 +6,7 @@ import traceback
 
 import paramiko
 
+from app import paths
 from app.constants import (DEFAULT_PORT, DISABLED_ALGORITHMS, FAIL_RECORD_TTL_SECONDS,
                             IP_LOCKOUT_THRESHOLD, LOCKOUT_PRUNE_INTERVAL, LOCKOUT_SECONDS,
                             LOCKOUT_THRESHOLD, MAX_PER_IP_CONNECTIONS, MAX_TOTAL_CONNECTIONS,
@@ -636,6 +637,19 @@ class SFTPService:
                         "Restore a backup of 'host_ed25519', or move it out of the app folder "
                         "to let the server create a new identity (connecting clients will see "
                         "a one-time host-key-changed warning)."
+                    ),
+                }
+            except Exception as e:
+                # Most likely creating a new key failed: the app folder is
+                # read-only, the disk is full, or another program has it locked.
+                folder = os.path.dirname(paths.HOST_KEY_FILE)
+                debug.log("host key create failed", f"{type(e).__name__}: {e}")
+                return {
+                    "ok": False,
+                    "error": (
+                        "The server's host key could not be created in '" + folder + "'. "
+                        "Check that this folder is not read-only, the disk is not full, "
+                        "and no other program (such as antivirus) is blocking it."
                     ),
                 }
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

@@ -50,7 +50,9 @@ If you enjoyed this project and would like to buy me a coffee, check out my [Ko-
 - Config: `server_config.json` next to the app (usernames, folders, settings,
   and one-way bcrypt password hashes; never a plaintext password).
 - Host identity: an Ed25519 host key generated on first run and kept next to
-  the app, so its fingerprint stays stable for clients to trust.
+  the app, so its fingerprint stays stable for clients to trust. An RSA host
+  key of 2048 bits or more, which versions up to 1.5.0 could write in rare
+  cases, is still accepted and kept.
 - Window: pywebview on the Qt backend, UI in `simple_sftp_server-UI.html`.
 
 ## Download and run
