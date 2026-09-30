@@ -95,32 +95,85 @@ def test_cap_eviction_drops_oldest_nonlocked_first(monkeypatch):
         assert key in lockout._fails
 
 
-def test_locked_entries_survive_cap_eviction(monkeypatch):
+def test_all_locked_tables_stay_at_ceiling_via_record_fail_and_prune(monkeypatch):
     import app.server as server_module
 
-    monkeypatch.setattr(server_module, "MAX_TRACKED_IPS", 5)
+    monkeypatch.setattr(server_module, "MAX_TRACKED_IPS", 2)
 
     lockout = Lockout()
     t0 = 1_000_000.0
 
-    locked_ips = ["10.0.2.%d" % i for i in range(5)]
-    locked_keys = [(ip, "user") for ip in locked_ips]
-    for i, ip in enumerate(locked_ips):
+    for i in range(3):
+        ip = "10.0.2.%d" % i
         _lock_out(lockout, ip, "user", t0 + i)
-        assert lockout.is_locked(ip, "user", now=t0 + i) is True
+    assert len(lockout._fails) <= 2
+    assert len(lockout._last) <= 2
+    assert len(lockout._until) <= 2
 
-    extra_ips = ["10.0.2.%d" % i for i in range(100, 103)]
-    for i, ip in enumerate(extra_ips):
-        lockout.record_fail(ip, "user", now=t0 + 10 + i)
+    for i in range(3):
+        ip = "10.0.3.%d" % i
+        for username in range(IP_LOCKOUT_THRESHOLD):
+            lockout.record_fail(ip, "user%d" % username, now=t0 + 10 + i)
+    assert len(lockout._ip_fails) <= 2
+    assert len(lockout._ip_last) <= 2
+    assert len(lockout._ip_until) <= 2
 
-    lockout._prune(t0 + 200)
+    lockout._fails = {("10.0.4.%d" % i, "user"): LOCKOUT_THRESHOLD for i in range(3)}
+    lockout._last = {key: t0 for key in lockout._fails}
+    lockout._until = {key: t0 + LOCKOUT_SECONDS + i for i, key in enumerate(lockout._fails)}
+    lockout._ip_fails = {"10.0.5.%d" % i: IP_LOCKOUT_THRESHOLD for i in range(3)}
+    lockout._ip_last = {ip: t0 for ip in lockout._ip_fails}
+    lockout._ip_until = {ip: t0 + LOCKOUT_SECONDS + i for i, ip in enumerate(lockout._ip_fails)}
+    lockout._prune(t0 + 1)
 
-    # The cap may be exceeded here since every entry is locked, but no
-    # locked account should ever be dropped to make room.
-    for key in locked_keys:
-        assert key in lockout._until
-        assert key in lockout._fails
-        assert key in lockout._last
+    assert len(lockout._fails) <= 2
+    assert len(lockout._last) <= 2
+    assert len(lockout._until) <= 2
+    assert len(lockout._ip_fails) <= 2
+    assert len(lockout._ip_last) <= 2
+    assert len(lockout._ip_until) <= 2
+
+
+def test_unlocked_records_are_evicted_before_locked_records(monkeypatch):
+    import app.server as server_module
+
+    monkeypatch.setattr(server_module, "MAX_TRACKED_IPS", 2)
+    lockout = Lockout()
+    t0 = 1_000_000.0
+    locked_key = ("10.0.6.1", "user")
+    unlocked_key = ("10.0.6.2", "user")
+    newer_unlocked_key = ("10.0.6.3", "user")
+    lockout._fails = {locked_key: LOCKOUT_THRESHOLD, unlocked_key: 1, newer_unlocked_key: 1}
+    lockout._last = {locked_key: t0 + 2, unlocked_key: t0, newer_unlocked_key: t0 + 1}
+    lockout._until = {locked_key: t0 + LOCKOUT_SECONDS}
+
+    lockout._prune(t0 + 3)
+
+    assert locked_key in lockout._fails
+    assert unlocked_key not in lockout._fails
+    assert newer_unlocked_key in lockout._fails
+
+
+def test_earliest_expiring_locked_record_is_evicted_and_no_longer_locked(monkeypatch):
+    import app.server as server_module
+
+    monkeypatch.setattr(server_module, "MAX_TRACKED_IPS", 2)
+    lockout = Lockout()
+    t0 = 1_000_000.0
+    ips = ["10.0.7.%d" % i for i in range(3)]
+    keys = [(ip, "user") for ip in ips]
+    lockout._fails = {key: LOCKOUT_THRESHOLD for key in keys}
+    lockout._last = {key: t0 for key in keys}
+    lockout._until = {keys[0]: t0 + 10, keys[1]: t0 + 20, keys[2]: t0 + 30}
+
+    lockout._prune(t0 + 1)
+
+    assert keys[0] not in lockout._fails
+    assert keys[0] not in lockout._last
+    assert keys[0] not in lockout._until
+    assert lockout.is_locked(ips[0], "user", now=t0 + 1) is False
+    for ip in ips[1:]:
+        assert lockout.is_locked(ip, "user", now=t0 + 1) is True
 
 
 def test_is_locked_accuracy_independent_of_prune_timing():

@@ -90,17 +90,17 @@ class Lockout:
             key = (ip, username)
             if key not in self._fails and len(self._fails) >= MAX_TRACKED_IPS:
                 # table is full and this is a new account: force a sweep to
-                # reclaim expired/stale records, then evict the single
-                # oldest non-locked entry if there is still no room. A
-                # locked entry is never dropped just to make room.
+                # reclaim expired/stale records, then evict one entry if
+                # there is still no room: oldest non-locked first, otherwise
+                # the locked entry nearest expiry.
                 self._prune(now)
                 if len(self._fails) >= MAX_TRACKED_IPS:
-                    self._evict_oldest_nonlocked(self._fails, self._last, self._until)
+                    self._evict_one(self._fails, self._last, self._until)
 
             if ip not in self._ip_fails and len(self._ip_fails) >= MAX_TRACKED_IPS:
                 self._prune(now)
                 if len(self._ip_fails) >= MAX_TRACKED_IPS:
-                    self._evict_oldest_nonlocked(self._ip_fails, self._ip_last, self._ip_until)
+                    self._evict_one(self._ip_fails, self._ip_last, self._ip_until)
 
             n = self._fails.get(key, 0) + 1
             self._fails[key] = n
@@ -180,32 +180,25 @@ class Lockout:
                 fails.pop(key, None)
                 last.pop(key, None)
 
-        # 3) enforce the hard ceiling, oldest non-locked records first;
-        # locked keys are never evicted to make room
-        if len(last) > MAX_TRACKED_IPS:
-            candidates = sorted(
-                (key for key in last if key not in until),
-                key=lambda key: last[key],
-            )
-            for key in candidates:
-                if len(last) <= MAX_TRACKED_IPS:
-                    break
-                fails.pop(key, None)
-                last.pop(key, None)
+        # 3) enforce the hard ceiling, oldest non-locked records first, then
+        # locked records nearest expiry when no unlocked records remain.
+        while len(last) > MAX_TRACKED_IPS:
+            if not Lockout._evict_one(fails, last, until):
+                break
 
     @staticmethod
-    def _evict_oldest_nonlocked(fails, last, until):
-        oldest_key = None
-        oldest_ts = None
-        for key, ts in last.items():
-            if key in until:
-                continue
-            if oldest_ts is None or ts < oldest_ts:
-                oldest_key = key
-                oldest_ts = ts
-        if oldest_key is not None:
-            fails.pop(oldest_key, None)
-            last.pop(oldest_key, None)
+    def _evict_one(fails, last, until):
+        unlocked = [key for key in last if key not in until]
+        if unlocked:
+            key = min(unlocked, key=lambda candidate: last[candidate])
+        elif until:
+            key = min(until, key=lambda candidate: until[candidate])
+        else:
+            return False
+        fails.pop(key, None)
+        last.pop(key, None)
+        until.pop(key, None)
+        return True
 
 
 # ───────────── default permissions ─────────────
