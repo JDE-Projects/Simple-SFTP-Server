@@ -1,4 +1,4 @@
-"""Phase 4 authoritative shutdown: the remaining end-to-end loopback scenarios
+"""Authoritative shutdown: the end-to-end loopback scenarios
 not already covered by test_shutdown.py (active-client Stop, immediate
 restart) or test_revocation.py (server-level and API-spy revocation). This
 file covers a mid-flight transfer teardown, a Quick Start teardown through the

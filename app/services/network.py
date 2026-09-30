@@ -1,6 +1,11 @@
-import re
+import ipaddress
 import socket
 from urllib.request import Request, urlopen
+
+PUBLIC_IP_SERVICES = (
+    "https://api.ipify.org",
+    "https://checkip.amazonaws.com",
+)
 
 
 # ───────────── network ─────────────
@@ -21,13 +26,13 @@ def lan_ip():
 
 
 def public_ip():
-    for url in ("https://api.ipify.org", "https://checkip.amazonaws.com",
-                "https://ifconfig.me/ip"):
+    for url in PUBLIC_IP_SERVICES:
         try:
             req = Request(url, headers={"User-Agent": "Simple-SFTP-Server"})
             with urlopen(req, timeout=6) as r:
                 ip = r.read().decode().strip()
-            if re.fullmatch(r"[0-9.]{7,15}", ip):
+            address = ipaddress.ip_address(ip)
+            if isinstance(address, ipaddress.IPv4Address) and address.is_global:
                 return ip
         except Exception:
             continue

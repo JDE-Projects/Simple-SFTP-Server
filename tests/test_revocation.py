@@ -1,4 +1,4 @@
-"""Phase 3 authoritative shutdown: editing or deleting a user account forces
+"""Authoritative shutdown on account changes: editing or deleting a user account forces
 that account's live sessions closed immediately, so revoked access takes
 effect right away instead of waiting for the client to notice on its own.
 Creating a brand-new user disconnects nothing, since it has no prior sessions.

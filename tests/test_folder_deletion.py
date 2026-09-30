@@ -1,5 +1,4 @@
-"""Tests for Phase 1 of folder-deletion hardening: tracking only, no
-deletion behavior. Verifies that only folders created by make_share_folder
+"""Managed-folder tracking (no deletion is exercised here). Verifies that only folders created by make_share_folder
 (or Quick Start) are ever marked managed_folder."""
 
 import os

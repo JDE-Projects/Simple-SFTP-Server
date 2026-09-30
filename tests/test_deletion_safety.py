@@ -1,5 +1,5 @@
-"""Tests for Phase 2 of folder-deletion hardening: the blocked_reason safety
-gate and its wiring into Api.delete_user."""
+"""Folder-deletion safety: the blocked_reason safety gate and its wiring into
+Api.delete_user."""
 
 import os
 import shutil
@@ -320,7 +320,7 @@ def test_quick_start_preexisting_folder_stop_keeps_or_deletes_contents(tmp_path,
     assert not os.path.isdir(quick_folder)
 
 
-# ---- Group 4: Phase 4 gap-fill (partial failure, open handles, managed end-to-end) ----
+# ---- Group 4: partial failure, open handles, managed end-to-end ----
 
 def test_delete_user_warns_when_rmtree_fails(tmp_path, monkeypatch):
     api = _api(tmp_path, monkeypatch)
