@@ -1,3 +1,4 @@
+from contextlib import suppress
 import os
 import socket
 import threading
@@ -247,6 +248,7 @@ class JailedHandle(paramiko.SFTPHandle):
         self._last_emit = 0.0
         self.readfile = None
         self.writefile = None
+        self._dates = None
 
     def stat(self):
         try:
@@ -256,12 +258,22 @@ class JailedHandle(paramiko.SFTPHandle):
             return paramiko.SFTPServer.convert_errno(e.errno)
 
     def chattr(self, attr):
-        # This server does not apply attribute changes (permissions, ownership,
-        # timestamps, size) to open files. Return "unsupported" rather than a
-        # false success so a client is never told a change it asked for was
-        # made when it was not. This matches the by-path behavior, which
-        # paramiko answers as unsupported by default.
-        return paramiko.SFTP_OP_UNSUPPORTED
+        # Open upload handles may set only timestamps, and only for files this
+        # connection uploaded. Other attribute changes are refused so clients
+        # are not told an unsupported change was made.
+        if (self.writefile is None or not self._iface.perm["upload"] or
+                self.filename not in self._iface._uploaded_paths):
+            return paramiko.SFTP_PERMISSION_DENIED
+        if attr._flags != paramiko.SFTPAttributes.FLAG_AMTIME:
+            return paramiko.SFTP_OP_UNSUPPORTED
+        try:
+            self.writefile.flush()
+            dates = (attr.st_atime, attr.st_mtime)
+            os.utime(self.filename, dates)
+            self._dates = dates
+            return paramiko.SFTP_OK
+        except OSError as e:
+            return paramiko.SFTPServer.convert_errno(e.errno)
 
     def write(self, offset, data):
         if self.writefile is None:
@@ -290,6 +302,20 @@ class JailedHandle(paramiko.SFTPHandle):
     def close(self):
         try:
             super().close()
+            # Apply the dates again in case closing the file moved them. The
+            # client was already told they were set, so a failure here is
+            # reported in the activity feed and the debug log.
+            if self._dates is not None:
+                try:
+                    os.utime(self.filename, self._dates)
+                except OSError as e:
+                    with suppress(Exception):
+                        debug.log("could not keep original date on", {
+                            "path": self.filename, "error": str(e)})
+                    if self._iface.service:
+                        with suppress(Exception):
+                            self._iface.service.activity(
+                                self._iface.sid, "could not keep original date on", self._name)
         finally:
             self._iface._finish(self)
 
@@ -312,6 +338,7 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             # os.path.realpath("") resolve to the current working directory.
             self.root = None
         self.perm = perms_for(self.user) if self.user else dict(DEFAULT_PERMISSIONS)
+        self._uploaded_paths = set()
 
     def _progress(self, handle):
         if self.service:
@@ -409,6 +436,8 @@ class JailedSFTP(paramiko.SFTPServerInterface):
         except OSError as e:
             os.close(fd)
             return paramiko.SFTPServer.convert_errno(e.errno)
+        if writing:
+            self._uploaded_paths.add(real)
         direction = "download" if (reading and not writing) else "upload"
         if self.service:
             self.service.note_op(self.sid, "downloading" if direction == "download" else "uploading", path)
@@ -441,6 +470,7 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             return paramiko.SFTP_PERMISSION_DENIED
         try:
             os.remove(real)
+            self._uploaded_paths.discard(real)
             if self.service:
                 self.service.activity(self.sid, "deleted", os.path.basename(real))
             return paramiko.SFTP_OK
@@ -461,6 +491,30 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             return paramiko.SFTP_PERMISSION_DENIED
         try:
             os.rename(o, n)
+            # The file now at n is whatever was at o, so n's old record no
+            # longer applies.
+            self._uploaded_paths.discard(n)
+            if o in self._uploaded_paths:
+                self._uploaded_paths.remove(o)
+                self._uploaded_paths.add(n)
+            return paramiko.SFTP_OK
+        except OSError as e:
+            return paramiko.SFTPServer.convert_errno(e.errno)
+
+    def chattr(self, path, attr):
+        if self.service:
+            self.service.note_op(self.sid, "setting file date", path)
+        real = self._real(path)
+        if real is None:
+            return paramiko.SFTP_PERMISSION_DENIED
+        if not self.perm["upload"]:
+            return paramiko.SFTP_PERMISSION_DENIED
+        if real not in self._uploaded_paths or not os.path.isfile(real):
+            return paramiko.SFTP_PERMISSION_DENIED
+        if attr._flags != paramiko.SFTPAttributes.FLAG_AMTIME:
+            return paramiko.SFTP_OP_UNSUPPORTED
+        try:
+            os.utime(real, (attr.st_atime, attr.st_mtime))
             return paramiko.SFTP_OK
         except OSError as e:
             return paramiko.SFTPServer.convert_errno(e.errno)

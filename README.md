@@ -143,6 +143,15 @@ pipeline from this repo. You can also check the file against the published
    only saved to the account when you click Save, alongside any keys already
    listed (it does not replace them).
 
+Uploaded files keep their original modified date when the client asks for it,
+as WinSCP does with its Preserve timestamp option (on by default). The server
+only changes dates, and only on files uploaded in that same connection;
+folders and other existing files are refused. Requests to change permissions
+or ownership are refused as unsupported and nothing is changed. That includes
+OpenSSH's `sftp put -p`, which always asks for permissions with the dates: it
+shows "Operation unsupported", the file still uploads, and it gets the upload
+time as its date.
+
 ## Firewall and network access
 The first time the server starts listening, Windows shows its own one-time
 "Windows Security Alert" popup asking whether to allow the app through Windows

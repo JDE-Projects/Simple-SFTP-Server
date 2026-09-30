@@ -7,11 +7,14 @@ This does not cover server-stop or account-revocation lifecycle behavior;
 that is reserved for other test files.
 """
 
+import os
 import time
 
 import paramiko
 import pytest
+from paramiko.sftp import CMD_FSETSTAT, CMD_SETSTAT
 
+import app.server as server_module
 from app.constants import LOCKOUT_THRESHOLD
 from app.server import DEFAULT_PERMISSIONS
 from tests.sftp_helpers import authorized_key_line, make_user, sftp_key, sftp_password
@@ -30,6 +33,11 @@ def _close(client, sftp=None):
             sftp.close()
     finally:
         client.close()
+
+
+def _upload(sftp, path):
+    with sftp.open(path, "w") as f:
+        f.write(b"data")
 
 
 # ───────────── password auth ─────────────
@@ -332,6 +340,183 @@ def test_upload_then_download_roundtrip_updates_byte_count(tmp_path, sftp_server
         _close(client, sftp)
 
 
+# ───────────── uploaded-file attribute changes ─────────────
+
+def test_uploaded_file_utime_sets_mtime(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "uploaded.txt"
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+    timestamp = 946684800
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        _upload(sftp, "uploaded.txt")
+        sftp.utime("uploaded.txt", (timestamp, timestamp))
+        assert target.stat().st_mtime == timestamp
+    finally:
+        _close(client, sftp)
+
+
+def test_uploaded_file_utime_succeeds_after_rename(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "x"
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+    timestamp = 946684800
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        _upload(sftp, "x.filepart")
+        sftp.rename("x.filepart", "x")
+        sftp.utime("x", (timestamp, timestamp))
+        assert target.stat().st_mtime == timestamp
+    finally:
+        _close(client, sftp)
+
+
+def test_utime_refuses_preexisting_file_and_leaves_mtime(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "existing.txt"
+    target.write_bytes(b"data")
+    timestamp = 946684800
+    os.utime(target, (timestamp, timestamp))
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        with pytest.raises(IOError):
+            sftp.utime("existing.txt", (timestamp + 1, timestamp + 1))
+        assert target.stat().st_mtime == timestamp
+    finally:
+        _close(client, sftp)
+
+
+def test_utime_refuses_folder_and_leaves_mtime(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "folder"
+    target.mkdir()
+    timestamp = 946684800
+    os.utime(target, (timestamp, timestamp))
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        with pytest.raises(IOError):
+            sftp.utime("folder", (timestamp + 1, timestamp + 1))
+        assert target.stat().st_mtime == timestamp
+    finally:
+        _close(client, sftp)
+
+
+def test_utime_refuses_path_outside_jail_and_leaves_mtime(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = tmp_path / "outside.txt"
+    target.write_bytes(b"data")
+    timestamp = 946684800
+    os.utime(target, (timestamp, timestamp))
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        with pytest.raises(IOError):
+            sftp.utime("../outside.txt", (timestamp + 1, timestamp + 1))
+        assert target.stat().st_mtime == timestamp
+    finally:
+        _close(client, sftp)
+
+
+def test_utime_refuses_user_without_upload_permission(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "existing.txt"
+    target.write_bytes(b"data")
+    timestamp = 946684800
+    os.utime(target, (timestamp, timestamp))
+    user = make_user("bob", home, _perms(upload=False), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        with pytest.raises(IOError):
+            sftp.utime("existing.txt", (timestamp + 1, timestamp + 1))
+        assert target.stat().st_mtime == timestamp
+    finally:
+        _close(client, sftp)
+
+
+def test_utime_refuses_file_uploaded_by_another_connection(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "uploaded.txt"
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+    timestamp = 946684800
+
+    first_client, first_sftp = sftp_password(handle.port, "bob", "pw")
+    second_client, second_sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        _upload(first_sftp, "uploaded.txt")
+        before = target.stat().st_mtime
+        with pytest.raises(IOError):
+            second_sftp.utime("uploaded.txt", (timestamp, timestamp))
+        assert target.stat().st_mtime == before
+    finally:
+        _close(second_client, second_sftp)
+        _close(first_client, first_sftp)
+
+
+def test_utime_refuses_mixed_attributes_and_leaves_file_unchanged(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "uploaded.txt"
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+    timestamp = 946684800
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        _upload(sftp, "uploaded.txt")
+        before = target.stat()
+        attr = paramiko.SFTPAttributes()
+        attr.st_mode = 0o600
+        attr.st_atime = timestamp
+        attr.st_mtime = timestamp
+        with pytest.raises(IOError):
+            sftp._request(CMD_SETSTAT, "uploaded.txt", attr)
+        after = target.stat()
+        assert after.st_mtime == before.st_mtime
+        assert after.st_mode == before.st_mode
+    finally:
+        _close(client, sftp)
+
+
+def test_chmod_refuses_uploaded_file_and_leaves_mode(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "uploaded.txt"
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        _upload(sftp, "uploaded.txt")
+        before = target.stat().st_mode
+        with pytest.raises(IOError):
+            sftp.chmod("uploaded.txt", 0o444)
+        assert target.stat().st_mode == before
+    finally:
+        _close(client, sftp)
+
+
 # ───────────── open-file attribute changes ─────────────
 
 def test_open_file_chmod_reports_unsupported_and_leaves_mode(tmp_path, sftp_server):
@@ -359,25 +544,118 @@ def test_open_file_chmod_reports_unsupported_and_leaves_mode(tmp_path, sftp_serv
         _close(client, sftp)
 
 
-def test_open_file_utime_reports_unsupported_and_leaves_mtime(tmp_path, sftp_server):
+def test_open_upload_handle_utime_keeps_mtime_after_close(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "a.txt"
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+    timestamp = 946684800
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        f = sftp.open("a.txt", "w")
+        try:
+            f.write(b"data")
+            f.utime((timestamp, timestamp))
+        finally:
+            f.close()
+        assert target.stat().st_mtime == timestamp
+    finally:
+        _close(client, sftp)
+
+
+def test_open_upload_handle_refuses_mixed_attributes(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "a.txt"
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+    timestamp = 946684800
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        f = sftp.open("a.txt", "w")
+        try:
+            f.write(b"data")
+            before = target.stat()
+            attr = paramiko.SFTPAttributes()
+            attr.st_mode = 0o600
+            attr.st_atime = timestamp
+            attr.st_mtime = timestamp
+            with pytest.raises(IOError):
+                sftp._request(CMD_FSETSTAT, f.handle, attr)
+        finally:
+            f.close()
+        after = target.stat()
+        assert after.st_mtime != timestamp
+        assert after.st_mode == before.st_mode
+    finally:
+        _close(client, sftp)
+
+
+def test_open_read_handle_utime_is_refused(tmp_path, sftp_server):
     home = tmp_path / "home"
     home.mkdir()
     target = home / "a.txt"
     target.write_bytes(b"data")
-    before = target.stat().st_mtime
+    before = 946684700
+    timestamp = 946684800
+    os.utime(target, (before, before))
+    # Full permissions, so the refusal comes from the handle being read-only.
     user = make_user("bob", home, _perms(), password="pw")
     handle = sftp_server([user])
 
     client, sftp = sftp_password(handle.port, "bob", "pw")
     try:
-        f = sftp.open("a.txt", "r+")
+        f = sftp.open("a.txt", "r")
         try:
             with pytest.raises(IOError):
-                # A year-2000 timestamp, clearly different from the real one.
-                f.utime((946684800, 946684800))
+                f.utime((timestamp, timestamp))
         finally:
             f.close()
         assert target.stat().st_mtime == before
+    finally:
+        _close(client, sftp)
+
+
+def test_open_upload_handle_close_reports_second_utime_failure(tmp_path, sftp_server,
+                                                                monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "a.txt"
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+    timestamp = 946684800
+    activity = []
+    original_activity = handle.service.activity
+
+    def record_activity(sid, verb, name):
+        activity.append((sid, verb, name))
+        original_activity(sid, verb, name)
+
+    monkeypatch.setattr(handle.service, "activity", record_activity)
+    original_utime = os.utime
+    calls = 0
+
+    def fail_second_target_utime(path, dates):
+        nonlocal calls
+        if os.fspath(path) == str(target):
+            calls += 1
+            if calls == 2:
+                raise PermissionError("simulated close-time failure")
+        original_utime(path, dates)
+
+    monkeypatch.setattr(server_module.os, "utime", fail_second_target_utime)
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        f = sftp.open("a.txt", "w")
+        f.write(b"data")
+        f.utime((timestamp, timestamp))
+        f.close()
+        assert calls == 2
+        assert ("could not keep original date on", "a.txt") in [
+            (verb, name) for _sid, verb, name in activity]
     finally:
         _close(client, sftp)
 
