@@ -277,13 +277,16 @@ class Api:
             if auth in ("key", "both"):
                 keys = p.get("authorized_keys") or []
                 stripped = [k for k in ((k or "").strip() for k in keys) if k]
-                cleaned = [k for k in stripped if _valid_authorized_key(k)]
-                if stripped and not cleaned:
-                    return {"ok": False, "error": "One or more public keys are not valid. Paste the full contents of a .pub file (for example ssh-ed25519 AAAA... comment)."}
-                if not cleaned and not rec.get("authorized_keys"):
+                for position, key in enumerate(stripped, start=1):
+                    if not _valid_authorized_key(key):
+                        preview = key[:20] + ("..." if len(key) > 20 else "")
+                        return {"ok": False, "error":
+                                f'Key {position} is not a valid public key (starts with "{preview}"). '
+                                "Paste the full contents of a .pub file (for example ssh-ed25519 AAAA... comment)."}
+                if not stripped and not rec.get("authorized_keys"):
                     return {"ok": False, "error": "Add at least one public key (or switch to password auth)."}
-                if cleaned:
-                    rec["authorized_keys"] = cleaned
+                if stripped:
+                    rec["authorized_keys"] = stripped
             else:
                 rec.pop("authorized_keys", None)
             if existing is None:

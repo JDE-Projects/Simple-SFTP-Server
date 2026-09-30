@@ -246,6 +246,69 @@ def test_save_user_rejects_malformed_authorized_key(tmp_path, monkeypatch):
     assert cfg.get("users", []) == []
 
 
+def test_save_user_rejects_mixed_valid_and_invalid_keys(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    valid = api.generate_keypair("Ed25519", str(tmp_path / "id_ed25519"), "", "alice")
+    assert valid["ok"] is True
+    invalid = "ssh-ed25519 mangled-public-key"
+
+    result = api.save_user({
+        "username": "alice", "home": str(home), "permissions": _perms(),
+        "auth": "key", "authorized_keys": [valid["public"], invalid],
+    })
+
+    assert result == {
+        "ok": False,
+        "error": ('Key 2 is not a valid public key (starts with "ssh-ed25519 mangled-..."). '
+                  "Paste the full contents of a .pub file (for example ssh-ed25519 AAAA... comment)."),
+    }
+    assert api._load_config().get("users", []) == []
+
+
+def test_save_user_rejects_invalid_key_without_changing_existing_keys(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    first = api.generate_keypair("Ed25519", str(tmp_path / "id_ed25519"), "", "alice")
+    second = api.generate_keypair("Ed25519", str(tmp_path / "id_ed25519_2"), "", "alice")
+    assert first["ok"] is True
+    assert second["ok"] is True
+    original_keys = [first["public"], second["public"]]
+    assert api.save_user({
+        "username": "alice", "home": str(home), "permissions": _perms(),
+        "auth": "key", "authorized_keys": original_keys,
+    })["ok"] is True
+
+    result = api.save_user({
+        "username": "alice", "home": str(home), "permissions": _perms(),
+        "auth": "key", "authorized_keys": original_keys + ["not-a-public-key"],
+    })
+
+    assert result["ok"] is False
+    assert api._load_config()["users"][0]["authorized_keys"] == original_keys
+
+
+def test_save_user_accepts_all_valid_public_keys(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    first = api.generate_keypair("Ed25519", str(tmp_path / "id_ed25519"), "", "alice")
+    second = api.generate_keypair("Ed25519", str(tmp_path / "id_ed25519_2"), "", "alice")
+    assert first["ok"] is True
+    assert second["ok"] is True
+    keys = [first["public"], second["public"]]
+
+    result = api.save_user({
+        "username": "alice", "home": str(home), "permissions": _perms(),
+        "auth": "key", "authorized_keys": keys,
+    })
+
+    assert result["ok"] is True
+    assert api._load_config()["users"][0]["authorized_keys"] == keys
+
+
 def test_save_user_accepts_generated_public_key(tmp_path, monkeypatch):
     api = _api(tmp_path, monkeypatch)
     home = tmp_path / "alice"
