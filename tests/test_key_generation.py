@@ -4,9 +4,11 @@ that ties them together.
 """
 
 import builtins
+import os
 
 import paramiko
 import pytest
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import load_ssh_private_key
 
@@ -95,7 +97,7 @@ def test_partial_write_failure_leaves_no_private_key(tmp_path, monkeypatch):
     real_open = builtins.open
 
     def failing_open(path, *args, **kwargs):
-        if str(path) == pub_path:
+        if str(path).startswith(pub_path + ".tmp-"):
             raise OSError("simulated failure writing .pub file")
         return real_open(path, *args, **kwargs)
 
@@ -105,6 +107,128 @@ def test_partial_write_failure_leaves_no_private_key(tmp_path, monkeypatch):
 
     assert result["ok"] is False
     assert not private_path.exists()
+
+
+def _write_existing_pair(private_path):
+    private_path.write_bytes(b"old private key")
+    private_path.with_suffix(".pub").write_bytes(b"old public key\n")
+
+
+def _assert_no_keygen_staging_files(tmp_path):
+    assert list(tmp_path.glob("*.tmp-*")) == []
+
+
+def test_overwrite_public_write_failure_preserves_existing_pair(tmp_path, monkeypatch):
+    private_path = tmp_path / "id_ed25519"
+    pub_path = private_path.with_suffix(".pub")
+    _write_existing_pair(private_path)
+    old_private = private_path.read_bytes()
+    old_public = pub_path.read_bytes()
+    real_open = builtins.open
+
+    def failing_open(path, *args, **kwargs):
+        if str(path).startswith(str(pub_path) + ".tmp-"):
+            raise OSError("simulated failure writing .pub file")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr("app.services.keygen.open", failing_open, raising=False)
+
+    result = generate_keypair("Ed25519", str(private_path), "", "fixture-user", True)
+
+    assert result["ok"] is False
+    assert private_path.read_bytes() == old_private
+    assert pub_path.read_bytes() == old_public
+    _assert_no_keygen_staging_files(tmp_path)
+
+
+def test_overwrite_private_write_failure_preserves_existing_pair(tmp_path, monkeypatch):
+    private_path = tmp_path / "id_ed25519"
+    pub_path = private_path.with_suffix(".pub")
+    _write_existing_pair(private_path)
+    old_private = private_path.read_bytes()
+    old_public = pub_path.read_bytes()
+    real_open = builtins.open
+
+    def failing_open(path, *args, **kwargs):
+        if str(path).startswith(str(private_path) + ".tmp-"):
+            raise OSError("simulated failure writing private key")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr("app.services.keygen.open", failing_open, raising=False)
+
+    result = generate_keypair("Ed25519", str(private_path), "", "fixture-user", True)
+
+    assert result["ok"] is False
+    assert private_path.read_bytes() == old_private
+    assert pub_path.read_bytes() == old_public
+    _assert_no_keygen_staging_files(tmp_path)
+
+
+def test_overwrite_second_replace_failure_restores_existing_pair(tmp_path, monkeypatch):
+    private_path = tmp_path / "id_ed25519"
+    pub_path = private_path.with_suffix(".pub")
+    _write_existing_pair(private_path)
+    old_private = private_path.read_bytes()
+    old_public = pub_path.read_bytes()
+    real_replace = os.replace
+    replace_calls = 0
+
+    def failing_second_replace(source, destination):
+        nonlocal replace_calls
+        replace_calls += 1
+        if replace_calls == 3:
+            raise OSError("simulated failure replacing .pub file")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr("app.services.keygen.os.replace", failing_second_replace)
+
+    result = generate_keypair("Ed25519", str(private_path), "", "fixture-user", True)
+
+    assert result["ok"] is False
+    assert private_path.read_bytes() == old_private
+    assert pub_path.read_bytes() == old_public
+    _assert_no_keygen_staging_files(tmp_path)
+
+
+def test_failed_restore_keeps_private_key_backup(tmp_path, monkeypatch):
+    private_path = tmp_path / "id_ed25519"
+    _write_existing_pair(private_path)
+    old_private = private_path.read_bytes()
+    real_replace = os.replace
+    replace_calls = 0
+
+    def failing_replace(source, destination):
+        nonlocal replace_calls
+        replace_calls += 1
+        if replace_calls >= 3:
+            raise OSError("simulated failure replacing and restoring")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr("app.services.keygen.os.replace", failing_replace)
+
+    result = generate_keypair("Ed25519", str(private_path), "", "fixture-user", True)
+
+    assert result["ok"] is False
+    backups = [p for p in tmp_path.glob("id_ed25519.tmp-*")
+               if p.read_bytes() == old_private]
+    assert len(backups) == 1
+
+
+def test_successful_overwrite_replaces_pair_without_staging_files(tmp_path):
+    private_path = tmp_path / "id_ed25519"
+    pub_path = private_path.with_suffix(".pub")
+    _write_existing_pair(private_path)
+
+    result = generate_keypair("Ed25519", str(private_path), "", "fixture-user", True)
+
+    assert result["ok"] is True
+    private_key = load_ssh_private_key(private_path.read_bytes(), None)
+    expected_public = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.OpenSSH,
+        format=serialization.PublicFormat.OpenSSH,
+    ).decode()
+    assert pub_path.read_text(encoding="utf-8").startswith(expected_public + " ")
+    _assert_no_keygen_staging_files(tmp_path)
 
 
 def test_save_user_rejects_malformed_authorized_key(tmp_path, monkeypatch):
