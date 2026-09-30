@@ -90,17 +90,17 @@ class Lockout:
             key = (ip, username)
             if key not in self._fails and len(self._fails) >= MAX_TRACKED_IPS:
                 # table is full and this is a new account: force a sweep to
-                # reclaim expired/stale records, then evict the single
-                # oldest non-locked entry if there is still no room. A
-                # locked entry is never dropped just to make room.
+                # reclaim expired/stale records, then evict one entry if
+                # there is still no room: oldest non-locked first, otherwise
+                # the locked entry nearest expiry.
                 self._prune(now)
                 if len(self._fails) >= MAX_TRACKED_IPS:
-                    self._evict_oldest_nonlocked(self._fails, self._last, self._until)
+                    self._evict_one(self._fails, self._last, self._until)
 
             if ip not in self._ip_fails and len(self._ip_fails) >= MAX_TRACKED_IPS:
                 self._prune(now)
                 if len(self._ip_fails) >= MAX_TRACKED_IPS:
-                    self._evict_oldest_nonlocked(self._ip_fails, self._ip_last, self._ip_until)
+                    self._evict_one(self._ip_fails, self._ip_last, self._ip_until)
 
             n = self._fails.get(key, 0) + 1
             self._fails[key] = n
@@ -180,32 +180,25 @@ class Lockout:
                 fails.pop(key, None)
                 last.pop(key, None)
 
-        # 3) enforce the hard ceiling, oldest non-locked records first;
-        # locked keys are never evicted to make room
-        if len(last) > MAX_TRACKED_IPS:
-            candidates = sorted(
-                (key for key in last if key not in until),
-                key=lambda key: last[key],
-            )
-            for key in candidates:
-                if len(last) <= MAX_TRACKED_IPS:
-                    break
-                fails.pop(key, None)
-                last.pop(key, None)
+        # 3) enforce the hard ceiling, oldest non-locked records first, then
+        # locked records nearest expiry when no unlocked records remain.
+        while len(last) > MAX_TRACKED_IPS:
+            if not Lockout._evict_one(fails, last, until):
+                break
 
     @staticmethod
-    def _evict_oldest_nonlocked(fails, last, until):
-        oldest_key = None
-        oldest_ts = None
-        for key, ts in last.items():
-            if key in until:
-                continue
-            if oldest_ts is None or ts < oldest_ts:
-                oldest_key = key
-                oldest_ts = ts
-        if oldest_key is not None:
-            fails.pop(oldest_key, None)
-            last.pop(oldest_key, None)
+    def _evict_one(fails, last, until):
+        unlocked = [key for key in last if key not in until]
+        if unlocked:
+            key = min(unlocked, key=lambda candidate: last[candidate])
+        elif until:
+            key = min(until, key=lambda candidate: until[candidate])
+        else:
+            return False
+        fails.pop(key, None)
+        last.pop(key, None)
+        until.pop(key, None)
+        return True
 
 
 # ───────────── default permissions ─────────────
@@ -740,15 +733,17 @@ class SFTPService:
         # ip cannot both slip past the cap.
         with self._lock:
             if self._conn_count >= MAX_TOTAL_CONNECTIONS:
-                return False
+                return None
             if self._ip_counts.get(ip, 0) >= MAX_PER_IP_CONNECTIONS:
-                return False
+                return None
             self._conn_count += 1
             self._ip_counts[ip] = self._ip_counts.get(ip, 0) + 1
-            return True
+            return self._generation
 
-    def _release(self, ip):
+    def _release(self, ip, gen):
         with self._lock:
+            if gen != self._generation:
+                return
             self._conn_count = max(0, self._conn_count - 1)
             count = self._ip_counts.get(ip, 0) - 1
             if count <= 0:
@@ -787,7 +782,8 @@ class SFTPService:
                 except Exception:
                     pass
                 continue
-            if not self._admit(ip):
+            gen = self._admit(ip)
+            if gen is None:
                 self._log_rejected("capacity", ip)
                 try:
                     conn.close()
@@ -795,20 +791,19 @@ class SFTPService:
                     pass
                 continue
             try:
-                threading.Thread(target=self._handle, args=(conn, addr), daemon=True).start()
+                threading.Thread(target=self._handle, args=(conn, addr, gen), daemon=True).start()
             except Exception:
-                self._release(ip)
+                self._release(ip, gen)
                 try:
                     conn.close()
                 except Exception:
                     pass
 
-    def _handle(self, conn, addr):
+    def _handle(self, conn, addr, gen):
         ip = addr[0]
         with self._lock:
             self._sid += 1
             sid = self._sid
-            gen = self._generation
         t = None
         try:
             t = paramiko.Transport(conn, disabled_algorithms=DISABLED_ALGORITHMS)
@@ -863,7 +858,7 @@ class SFTPService:
                     existed = True
                     self._sessions.pop(sid, None)
                 self._conns.pop(sid, None)
-            self._release(ip)
+            self._release(ip, gen)
             if existed:
                 debug.log("client disconnected", {"ip": ip})
                 self._emit_status()
