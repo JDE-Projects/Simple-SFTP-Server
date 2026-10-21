@@ -8,7 +8,7 @@ qtpy==2.4.3
 pyinstaller==6.22.3
 # Routes update-check TLS through the Windows certificate store. The build
 # includes this explicitly because PyInstaller cannot discover the optional import.
-truststore==0.10.4
+truststore==0.10.5
 
 # SFTP transport + key handling. cryptography and bcrypt are used directly
 # (Ed25519 host/key generation and password hashing) as well as by paramiko;
