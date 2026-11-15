@@ -20,11 +20,17 @@
 
 const PORT = 48222;
 
+// Returns false on a timeout instead of throwing, so the calling check records
+// the message text actually on screen.
 async function toastShows(helpers, pattern, timeoutMs = 8000) {
-  return helpers.waitFor(
-    `document.getElementById('toast').classList.contains('show') && ${pattern}.test(document.getElementById('toast').textContent)`,
-    timeoutMs
-  );
+  try {
+    return await helpers.waitFor(
+      `document.getElementById('toast').classList.contains('show') && ${pattern}.test(document.getElementById('toast').textContent)`,
+      timeoutMs
+    );
+  } catch {
+    return false;
+  }
 }
 
 const pause = (helpers, ms) => helpers.evaluate(`new Promise(r => setTimeout(r, ${ms}))`);
