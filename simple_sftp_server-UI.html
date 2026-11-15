@@ -267,12 +267,12 @@
             Third-party firewalls or your router may also need the port opened.
             <a href="https://github.com/JDE-Projects/Simple-SFTP-Server/blob/main/README.md#firewall-and-network-access" target="_blank" rel="noopener">Learn more</a></span>
           </div>
-          <div class="kv"><span class="k">Address (LAN)</span><span class="v mono" id="vLan">—</span><button class="cp" data-c="vLan">Copy</button></div>
-          <div class="kv"><span class="k">Public IP</span><span class="v mono" id="vPub">—</span><button id="pubBtn" class="cp" title="Asks api.ipify.org (or checkip.amazonaws.com if that fails) for your public address">Get</button></div>
-          <div class="kv"><span class="k">Port</span><span class="v mono" id="vPort">—</span><button class="cp" data-c="vPort">Copy</button></div>
-          <div class="kv" id="rowUser" style="display:none"><span class="k">Username</span><span class="v mono" id="vUser">—</span><button class="cp" data-c="vUser">Copy</button></div>
+          <div class="kv"><span class="k">Address (LAN)</span><span class="v mono" id="vLan">-</span><button class="cp" data-c="vLan">Copy</button></div>
+          <div class="kv"><span class="k">Public IP</span><span class="v mono" id="vPub">-</span><button id="pubBtn" class="cp" title="Asks api.ipify.org (or checkip.amazonaws.com if that fails) for your public address">Get</button></div>
+          <div class="kv"><span class="k">Port</span><span class="v mono" id="vPort">-</span><button class="cp" data-c="vPort">Copy</button></div>
+          <div class="kv" id="rowUser" style="display:none"><span class="k">Username</span><span class="v mono" id="vUser">-</span><button class="cp" data-c="vUser">Copy</button></div>
           <div class="kv" id="rowPw" style="display:none"><span class="k">Password</span><span class="v mono" id="vPw">••••••••</span><button id="pwReveal" class="cp">Reveal</button><button id="pwCopy" class="cp">Copy</button></div>
-          <div class="kv"><span class="k">Host key</span><span class="v mono fp" id="vFp">—</span><button class="cp" data-c="vFp">Copy</button></div>
+          <div class="kv"><span class="k">Host key</span><span class="v mono fp" id="vFp">-</span><button class="cp" data-c="vFp">Copy</button></div>
         </div>
         <div class="pane-foot"><button id="copyCard" class="btn-ghost btn-sm" disabled>Copy connection card</button>
           <button id="openFolderBtn" class="btn-ghost btn-sm" style="display:none">Open share folder</button></div>
@@ -483,7 +483,7 @@ const PERM_IDS={list:"pList",download:"pDownload",upload:"pUpload",delete:"pDele
   rename_file:"pRenameFile",rename_dir:"pRenameDir",mkdir:"pMkdir",delete_dir:"pDeleteDir"};
 
 function permSummary(p){
-  if(!p)return "—";
+  if(!p)return "-";
   const on=PERM_KEYS.filter(k=>p[k]);
   if(!on.length)return "none";
   if(on.length===PERM_KEYS.length)return "full access";
@@ -529,7 +529,7 @@ async function init(){
   $("openFolderBtn").onclick=()=>cur&&cur.quick_folder&&API.reveal_folder(cur.quick_folder);
   $("pwReveal").onclick=onReveal;
   $("pwCopy").onclick=onCopyPw;
-  document.querySelectorAll(".cp[data-c]").forEach(b=>b.onclick=()=>{const v=$(b.dataset.c).textContent;if(v&&v!=="—"){copyText(v);toast("Copied");}});
+  document.querySelectorAll(".cp[data-c]").forEach(b=>b.onclick=()=>{const v=$(b.dataset.c).textContent;if(v&&v!=="-"){copyText(v);toast("Copied");}});
 
   $("addUser").onclick=()=>openUser(null);
   $("umCancel").onclick=()=>closeModal("userModal");
@@ -677,10 +677,10 @@ function reflectButtons(){
 }
 
 function clearConnDetails(){
-  $("vLan").textContent="—";
-  $("vPort").textContent="—";
-  $("vFp").textContent="—";
-  $("vPub").textContent="—";
+  $("vLan").textContent="-";
+  $("vPort").textContent="-";
+  $("vFp").textContent="-";
+  $("vPub").textContent="-";
   $("pubBtn").textContent="Get";
   $("pubBtn").onclick=onPublicIp;
   $("rowUser").style.display="none";
@@ -706,11 +706,11 @@ function applyStatus(s){
   if(!running){
     clearConnDetails();
   } else {
-    $("vLan").textContent=s.lan||"—";
-    $("vPort").textContent=s.port||"—";
-    $("vFp").textContent=s.fingerprint||"—";
+    $("vLan").textContent=s.lan||"-";
+    $("vPort").textContent=s.port||"-";
+    $("vFp").textContent=s.fingerprint||"-";
     $("copyCard").disabled=false;
-    if(s.firewall==="blocked"){$("fwPort").textContent=s.port||"—";$("fwBanner").classList.add("show");}
+    if(s.firewall==="blocked"){$("fwPort").textContent=s.port||"-";$("fwBanner").classList.add("show");}
     else{$("fwBanner").classList.remove("show");}
     const note=$("accessNote");
     if(isQuick){
