@@ -5,7 +5,7 @@ import ssl
 import urllib.error
 from urllib.request import Request, urlopen
 
-from app.debug_log import debug
+from app.debug_log import debug, describe_error
 
 
 # ───────────── update check ─────────────
@@ -76,9 +76,9 @@ def check_update(app_version, github_repo):
         tag = (data.get("tag_name") or "").lstrip("v")
         result["version"] = tag
         result["update"] = bool(tag and _is_newer(tag, app_version))
-        debug.log("check_update", f"found v{tag}, current v{app_version}")
+        debug._log("check_update", f"found v{tag}, current v{app_version}")
     except Exception as e:
         result["offline"] = True
         result["reason"] = _update_error_reason(e)
-        debug.log("check_update failed", f"{type(e).__name__}: {e}")
+        debug._log("check_update failed", describe_error(e))
     return result

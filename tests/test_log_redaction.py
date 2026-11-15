@@ -58,12 +58,12 @@ def test_redact_handles_empty():
     assert _redact(None) is None
 
 
-# ---- log() writes redacted content ----
+# ---- _log() writes redacted content ----
 
 def test_log_write_redacts_secret(tmp_path):
     log = DebugLog(str(tmp_path), "Simple SFTP Server", redact=_redact)
     assert log.set_enabled(True) is True
-    log.log("auth attempt", {"user": "amy", "password": "hunter2"})
+    log._log("auth attempt", {"user": "amy", "password": "hunter2"})
     written = (tmp_path).glob("Debug_Log_*.txt")
     body = next(written).read_text(encoding="utf-8")
     assert "hunter2" not in body

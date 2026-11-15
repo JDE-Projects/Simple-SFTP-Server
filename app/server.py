@@ -1,9 +1,8 @@
-from contextlib import suppress
 import os
 import socket
 import threading
 import time
-import traceback
+from contextlib import suppress
 
 import paramiko
 
@@ -12,7 +11,7 @@ from app.constants import (DEFAULT_PORT, DISABLED_ALGORITHMS, FAIL_RECORD_TTL_SE
                             IP_LOCKOUT_THRESHOLD, LOCKOUT_PRUNE_INTERVAL, LOCKOUT_SECONDS,
                             LOCKOUT_THRESHOLD, MAX_PER_IP_CONNECTIONS, MAX_TOTAL_CONNECTIONS,
                             MAX_TRACKED_IPS)
-from app.debug_log import debug
+from app.debug_log import debug, describe_error, describe_failure
 from app.helpers import friendly_error, human_size
 from app.services.hostkey import HostKeyError, load_or_create_host_key
 from app.services.passwords import _DUMMY_PASSWORD_HASH, verify_password
@@ -310,8 +309,8 @@ class JailedHandle(paramiko.SFTPHandle):
                     os.utime(self.filename, self._dates)
                 except OSError as e:
                     with suppress(Exception):
-                        debug.log("could not keep original date on", {
-                            "path": self.filename, "error": str(e)})
+                        debug._log("could not keep original date on", {
+                            "error": describe_error(e)})
                     if self._iface.service:
                         with suppress(Exception):
                             self._iface.service.activity(
@@ -584,7 +583,7 @@ class ServerIface(paramiko.ServerInterface):
             # long as the real one and doesn't leak valid usernames via timing.
             verify_password(password, _DUMMY_PASSWORD_HASH)
         self.service.lockout.record_fail(self.ip, username)
-        debug.log("auth fail (password)", {"ip": self.ip, "user": username})
+        debug._log("auth fail (password)", {"ip": self.ip})
         return paramiko.AUTH_FAILED
 
     def check_auth_publickey(self, username, key):
@@ -601,7 +600,7 @@ class ServerIface(paramiko.ServerInterface):
                     self._win(username, u)
                     return paramiko.AUTH_SUCCESSFUL
         self.service.lockout.record_fail(self.ip, username)
-        debug.log("auth fail (key)", {"ip": self.ip, "user": username})
+        debug._log("auth fail (key)", {"ip": self.ip})
         return paramiko.AUTH_FAILED
 
     def _win(self, username, user):
@@ -690,7 +689,7 @@ class SFTPService:
                 # Most likely creating a new key failed: the app folder is
                 # read-only, the disk is full, or another program has it locked.
                 folder = os.path.dirname(paths.HOST_KEY_FILE)
-                debug.log("host key create failed", f"{type(e).__name__}: {e}")
+                debug._log("host key create failed", describe_error(e))
                 return {
                     "ok": False,
                     "error": (
@@ -718,7 +717,7 @@ class SFTPService:
         self._accept_thread.start()
         self._pump_thread = threading.Thread(target=self._pump_loop, daemon=True)
         self._pump_thread.start()
-        debug.log("SERVER start", {"port": port, "quick": quick})
+        debug._log("SERVER start", {"port": port, "quick": quick})
         return {"ok": True, "port": port}
 
     def stop(self):
@@ -778,8 +777,8 @@ class SFTPService:
         # The transports are already closed, so a thread that outlived the budget
         # cannot corrupt the next run; note it but still report stopped.
         if lingering:
-            debug.log("SERVER stop: threads still winding down", {"count": lingering})
-        debug.log("SERVER stop")
+            debug._log("SERVER stop: threads still winding down", {"count": lingering})
+        debug._log("SERVER stop")
         return {"ok": True}
 
     def _admit(self, ip):
@@ -814,7 +813,7 @@ class SFTPService:
             if now - last < 1.0:
                 return
             self._reject_log_times[reason] = now
-        debug.log("rejected (%s)" % reason, ip)
+        debug._log("rejected (%s)" % reason, ip)
 
     def _accept_loop(self):
         while not self._stop.is_set():
@@ -892,14 +891,14 @@ class SFTPService:
                                        "stats": 0, "bytes": 0}
                 if sid in self._conns:
                     self._conns[sid]["user"] = server.username
-            debug.log("client connected", {"ip": ip, "user": server.username})
+            debug._log("client connected", {"ip": ip})
             self.activity(sid, "connected", "")
             while t.is_active() and not self._stop.is_set():
                 time.sleep(0.5)
         except paramiko.SSHException as e:
-            debug.log("transport error", str(e))
-        except Exception:
-            debug.log("handle error", traceback.format_exc())
+            debug._log("transport error", describe_error(e))
+        except Exception as e:
+            debug._log("handle error", describe_failure(e))
         finally:
             if t:
                 try:
@@ -914,7 +913,7 @@ class SFTPService:
                 self._conns.pop(sid, None)
             self._release(ip, gen)
             if existed:
-                debug.log("client disconnected", {"ip": ip})
+                debug._log("client disconnected", {"ip": ip})
                 self._emit_status()
 
     def transfer_begin(self, sid, handle):
@@ -1026,8 +1025,8 @@ class SFTPService:
             self._stop.wait(PUMP_INTERVAL)
             try:
                 self._flush()
-            except Exception:
-                debug.log("live pump flush error", traceback.format_exc())
+            except Exception as e:
+                debug._log("live pump flush error", describe_failure(e))
 
     def _flush(self):
         with self._lock:

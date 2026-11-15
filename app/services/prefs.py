@@ -5,7 +5,7 @@ from ctypes import wintypes
 
 from app import paths
 from app.atomic import atomic_write_json
-from app.debug_log import debug
+from app.debug_log import debug, describe_error
 
 
 # ───────────── prefs (theme + window geometry) ─────────────
@@ -23,7 +23,7 @@ def save_prefs(prefs):
         atomic_write_json(paths.pref_file(), prefs)
         return True
     except Exception as e:
-        debug.log("save prefs failed", str(e))
+        debug._log("save prefs failed", describe_error(e))
         return False
 
 
