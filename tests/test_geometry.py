@@ -1,7 +1,10 @@
-"""Tests for _valid_geometry in app/services/prefs.py: pure validation of a
-saved window geometry dict."""
+"""Tests for the pure window-geometry helpers in app/services/prefs.py:
+_valid_geometry (validation of a saved geometry dict) and
+fit_rect_to_work_area (the fitting math behind _apply_window_rect). The Win32
+calls around them need a live desktop window and are covered by the
+window-fit UI checks in tools/ui_check instead."""
 
-from app.services.prefs import _valid_geometry
+from app.services.prefs import _valid_geometry, fit_rect_to_work_area
 
 
 def test_valid_dict_passes_through_unchanged():
@@ -50,3 +53,35 @@ def test_x_and_y_pass_through_negative_values_unclamped():
     out = _valid_geometry(geo)
     assert out["x"] == -1920
     assert out["y"] == -40
+
+
+def test_fit_rect_to_work_area_shrinks_width():
+    assert fit_rect_to_work_area(0, 20, 140, 60, (0, 0, 100, 100), (0, 0, 0, 0)) == (0, 20, 100, 60)
+
+
+def test_fit_rect_to_work_area_shrinks_height():
+    assert fit_rect_to_work_area(20, 0, 60, 140, (0, 0, 100, 100), (0, 0, 0, 0)) == (20, 0, 60, 100)
+
+
+def test_fit_rect_to_work_area_moves_past_right_and_bottom():
+    assert fit_rect_to_work_area(70, 80, 40, 30, (0, 0, 100, 100), (0, 0, 0, 0)) == (60, 70, 40, 30)
+
+
+def test_fit_rect_to_work_area_moves_past_left_and_top():
+    assert fit_rect_to_work_area(-10, -20, 40, 30, (0, 0, 100, 100), (0, 0, 0, 0)) == (0, 0, 40, 30)
+
+
+def test_fit_rect_to_work_area_keeps_snapped_visible_edge():
+    assert fit_rect_to_work_area(-7, 0, 114, 107, (0, 0, 100, 100), (7, 0, 7, 7)) == (-7, 0, 114, 107)
+
+
+def test_fit_rect_to_work_area_keeps_already_fitting_rect():
+    assert fit_rect_to_work_area(10, 20, 60, 50, (0, 0, 100, 100), (2, 3, 4, 5)) == (10, 20, 60, 50)
+
+
+def test_fit_rect_to_work_area_handles_negative_origin():
+    assert fit_rect_to_work_area(-180, 10, 80, 40, (-200, 0, 0, 100), (0, 0, 0, 0)) == (-180, 10, 80, 40)
+
+
+def test_fit_rect_to_work_area_keeps_top_left_when_larger_in_both_directions():
+    assert fit_rect_to_work_area(-20, -20, 140, 140, (0, 0, 100, 100), (0, 0, 0, 0)) == (0, 0, 100, 100)
