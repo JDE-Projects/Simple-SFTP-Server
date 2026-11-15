@@ -377,6 +377,51 @@ def test_uploaded_file_utime_succeeds_after_rename(tmp_path, sftp_server):
         _close(client, sftp)
 
 
+def test_uploaded_file_utime_succeeds_after_folder_rename(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "new" / "sub" / "x"
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+    timestamp = 946684800
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        sftp.mkdir("old")
+        sftp.mkdir("old/sub")
+        _upload(sftp, "old/sub/x")
+        sftp.rename("old", "new")
+        sftp.utime("new/sub/x", (timestamp, timestamp))
+        assert target.stat().st_mtime == timestamp
+    finally:
+        _close(client, sftp)
+
+
+def test_folder_rename_drops_records_under_old_path(tmp_path, sftp_server):
+    # A file someone else puts at the old path after the rename was not
+    # uploaded by this connection, so its date cannot be set.
+    home = tmp_path / "home"
+    home.mkdir()
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+    timestamp = 946684800
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        sftp.mkdir("old")
+        _upload(sftp, "old/x")
+        sftp.rename("old", "new")
+        (home / "old").mkdir()
+        replacement = home / "old" / "x"
+        replacement.write_bytes(b"other")
+        os.utime(replacement, (timestamp, timestamp))
+        with pytest.raises(IOError):
+            sftp.utime("old/x", (timestamp + 1, timestamp + 1))
+        assert replacement.stat().st_mtime == timestamp
+    finally:
+        _close(client, sftp)
+
+
 def test_utime_refuses_preexisting_file_and_leaves_mtime(tmp_path, sftp_server):
     home = tmp_path / "home"
     home.mkdir()
