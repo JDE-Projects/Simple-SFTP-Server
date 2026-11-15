@@ -490,15 +490,22 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             return paramiko.SFTP_PERMISSION_DENIED
         try:
             os.rename(o, n)
-            # The file now at n is whatever was at o, so n's old record no
-            # longer applies.
-            self._uploaded_paths.discard(n)
-            if o in self._uploaded_paths:
-                self._uploaded_paths.remove(o)
-                self._uploaded_paths.add(n)
+            self._move_upload_records(o, n)
             return paramiko.SFTP_OK
         except OSError as e:
             return paramiko.SFTPServer.convert_errno(e.errno)
+
+    def _move_upload_records(self, old, new):
+        # Whatever is now at new came from old, so records at or under new no
+        # longer apply, and records at or under old (a renamed file, or the
+        # files inside a renamed folder) move to the matching path under new.
+        def under(path, base):
+            return path == base or path.startswith(base + os.sep)
+
+        moved = {new + p[len(old):] for p in self._uploaded_paths if under(p, old)}
+        stale = {p for p in self._uploaded_paths if under(p, old) or under(p, new)}
+        self._uploaded_paths -= stale
+        self._uploaded_paths |= moved
 
     def chattr(self, path, attr):
         if self.service:
