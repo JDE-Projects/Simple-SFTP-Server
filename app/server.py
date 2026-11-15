@@ -711,8 +711,14 @@ class SFTPService:
         self.is_quick = quick
         self.running = True
         self._stop.clear()
+        # Reset the admission counts with the generation bump. If Stop's wait
+        # for the old accept loop ran out, that loop may have admitted one more
+        # connection after Stop cleared the counts; its release is ignored
+        # (old generation), so without this reset the slot would stay counted.
         with self._lock:
             self._generation += 1
+            self._conn_count = 0
+            self._ip_counts.clear()
         self._accept_thread = threading.Thread(target=self._accept_loop, daemon=True)
         self._accept_thread.start()
         self._pump_thread = threading.Thread(target=self._pump_loop, daemon=True)
