@@ -79,3 +79,46 @@ def test_stop_finishes_the_servers_own_threads(tmp_path, sftp_server):
 
     assert service._accept_thread is None
     assert service._pump_thread is None
+
+
+def _wait_until(condition, timeout=5.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if condition():
+            return True
+        time.sleep(0.1)
+    return condition()
+
+
+def test_connection_from_an_earlier_run_closes_itself(tmp_path, sftp_server):
+    # Stands in for a connection a slow Stop missed: the run moves on without
+    # closing it, and the connection must notice and close on its own.
+    home = tmp_path / "home"
+    home.mkdir()
+    user = make_user("bob", home, _perms(), password="correct horse battery staple")
+    handle = sftp_server([user])
+    service = handle.service
+
+    client, sftp = sftp_password(handle.port, "bob", "correct horse battery staple")
+    try:
+        assert len(service.active_conns()) == 1
+        with service._lock:
+            service._generation += 1
+        assert _wait_until(lambda: not client.get_transport().is_active())
+        assert _wait_until(lambda: service.active_conns() == [])
+        assert service._sessions == {}
+    finally:
+        sftp.close()
+        client.close()
+
+
+def test_accept_loop_from_an_earlier_run_exits(tmp_path, sftp_server):
+    handle = sftp_server([])
+    service = handle.service
+    old_loop = service._accept_thread
+    assert old_loop.is_alive()
+
+    with service._lock:
+        service._generation += 1
+    old_loop.join(timeout=5)
+    assert not old_loop.is_alive()
