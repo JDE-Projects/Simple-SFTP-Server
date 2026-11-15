@@ -1,6 +1,7 @@
 import ctypes
 import json
 import os
+import time
 from ctypes import wintypes
 
 from app import paths
@@ -10,11 +11,32 @@ from app.debug_log import debug, describe_error
 
 # ───────────── prefs (theme + window geometry) ─────────────
 def load_prefs():
+    """Full prefs dict. A missing file is a first run. A file that opens but
+    will not parse is kept aside (renamed with a .corrupt- stamp) and logged,
+    never wiped. A file that cannot be opened (locked, no access) is not
+    damaged, so it is left in place and logged."""
+    path = paths.pref_file()
     try:
-        with open(paths.pref_file(), "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except Exception:
+        with open(path, "rb") as f:
+            raw = f.read()
+    except FileNotFoundError:
+        return {}
+    except OSError as e:
+        debug._log("settings file not read", describe_error(e))
+        return {}
+    try:
+        data = json.loads(raw.decode("utf-8"))
+        if isinstance(data, dict):
+            return data
+        raise ValueError("prefs root is not an object")
+    except Exception as e:
+        reason = describe_error(e)
+        try:
+            os.replace(path, f"{path}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}")
+            debug._log("settings file unreadable, kept aside", reason)
+        except Exception as move_error:
+            debug._log("settings file unreadable, not kept aside",
+                       {"error": reason, "move_error": describe_error(move_error)})
         return {}
 
 
