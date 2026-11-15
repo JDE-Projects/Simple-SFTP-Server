@@ -4,7 +4,7 @@ import tempfile
 import paramiko
 
 from app import paths
-from app.debug_log import debug
+from app.debug_log import debug, describe_error
 
 
 class HostKeyError(Exception):
@@ -51,12 +51,12 @@ def _load_legacy_rsa():
     try:
         key = paramiko.RSAKey(filename=paths.HOST_KEY_FILE)
     except Exception as e:
-        debug.log("host key RSA load failed", str(e))
+        debug._log("host key RSA load failed", describe_error(e))
         return None
     if key.get_bits() < MIN_RSA_HOST_KEY_BITS:
-        debug.log("host key RSA too small", key.get_bits())
+        debug._log("host key RSA too small", key.get_bits())
         return None
-    debug.log("host key loaded as RSA", key.get_bits())
+    debug._log("host key loaded as RSA", key.get_bits())
     return key
 
 
@@ -65,7 +65,7 @@ def load_or_create_host_key():
         try:
             return paramiko.Ed25519Key(filename=paths.HOST_KEY_FILE)
         except Exception as e:
-            debug.log("host key load failed", str(e))
+            debug._log("host key load failed", describe_error(e))
             rsa_key = _load_legacy_rsa()
             if rsa_key is not None:
                 return rsa_key

@@ -4,7 +4,6 @@ import json
 import os
 import shutil
 import threading
-import traceback
 import webbrowser
 from datetime import datetime, timezone
 
@@ -13,7 +12,7 @@ import paramiko
 from app import paths
 from app.atomic import atomic_write_json
 from app.constants import DEFAULT_PORT, GITHUB_REPO
-from app.debug_log import debug
+from app.debug_log import debug, describe_error, describe_failure
 from app.helpers import fingerprint_sha256, friendly_error
 from app.server import DEFAULT_PERMISSIONS, QUICK_PERMISSIONS, SFTPService, perms_for
 from app.services.firewall import _firewall_status
@@ -71,7 +70,7 @@ class Api:
             except Exception as e:
                 # Never let a failed UI push crash a worker thread, but leave a
                 # trace when debug logging is on instead of vanishing silently.
-                debug.log("emit failed", {"event": event, "error": str(e)})
+                debug._log("emit failed", {"event": event, "error": describe_error(e)})
 
     def get_meta(self):
         cfg = self._load_config()
@@ -83,7 +82,7 @@ class Api:
 
     def set_debug(self, on):
         ok = debug.set_enabled(on)
-        debug.log("Debug enabled" if on and ok else "Debug disabled")
+        debug._log("Debug enabled" if on and ok else "Debug disabled")
         return {"ok": ok, "enabled": debug.is_enabled(),
                 "warnings": self._drain_debug_warnings()}
 
@@ -132,16 +131,14 @@ class Api:
                                          f"server_config.corrupt-{stamp}.json")
             try:
                 os.replace(paths.CONFIG_FILE, corrupt_path)
-                debug.log("config unreadable, moved aside", {"from": paths.CONFIG_FILE,
-                                                               "to": corrupt_path,
-                                                               "error": str(e)})
+                debug._log("config unreadable, moved aside", {"error": describe_error(e)})
                 self._config_warning = (
                     "Your saved settings file could not be read. It was kept as "
                     f"{os.path.basename(corrupt_path)} and the app started with no "
                     "users. The original file was not deleted.")
             except Exception as e2:
-                debug.log("config unreadable and could not be moved aside",
-                          {"path": paths.CONFIG_FILE, "error": str(e2)})
+                debug._log("config unreadable and could not be moved aside",
+                           {"error": describe_error(e2)})
                 self._config_warning = (
                     "Your saved settings file could not be read and could not be "
                     "moved aside. The app started with no users; the original file "
@@ -154,7 +151,7 @@ class Api:
             atomic_write_json(paths.CONFIG_FILE, cfg, indent=2)
             return True
         except Exception as e:
-            debug.log("save config failed", str(e))
+            debug._log("save config failed", describe_error(e))
             return False
 
     def _public_users(self, cfg):
@@ -313,7 +310,7 @@ class Api:
             cfg["users"] = users
             if not self._save_config(cfg):
                 return {"ok": False, "error": "Could not write the config file."}
-        debug.log("user saved", {"user": username, "permissions": permissions, "auth": auth})
+        debug._log("user saved", {"permissions": permissions, "auth": auth})
         dropped = 0
         if existing is not None:
             for nm in {original or username, username}:
@@ -335,15 +332,15 @@ class Api:
             if home and os.path.isdir(home):
                 reason = blocked_reason(home)
                 if reason is not None:
-                    debug.log("user folder delete blocked", {"home": home, "reason": reason})
+                    debug._log("user folder delete blocked", {"reason": reason})
                     warning = ("The user was removed. Their folder was kept because it is " +
                                reason + " and cannot be deleted by the app.")
                 else:
                     try:
                         shutil.rmtree(home)
-                        debug.log("user folder deleted", home)
+                        debug._log("user folder deleted")
                     except Exception as e:
-                        debug.log("user folder delete failed", str(e))
+                        debug._log("user folder delete failed", describe_error(e))
                         warning = "The user was removed but their folder could not be deleted: " + friendly_error(e)
         result = {"ok": True, "users": self._public_users(cfg)}
         result["disconnected"] = dropped
@@ -379,8 +376,8 @@ class Api:
     def start_server(self, port):
         try:
             return self._start_server(port)
-        except Exception:
-            debug.log("start server failed", traceback.format_exc())
+        except Exception as e:
+            debug._log("start server failed", describe_failure(e))
             raise
 
     def _start_server(self, port):
@@ -409,8 +406,8 @@ class Api:
     def stop_server(self, delete_folder=False):
         try:
             return self._stop_server(delete_folder)
-        except Exception:
-            debug.log("stop server failed", traceback.format_exc())
+        except Exception as e:
+            debug._log("stop server failed", describe_failure(e))
             raise
 
     def _stop_server(self, delete_folder=False):
@@ -424,22 +421,22 @@ class Api:
         if delete_folder and was_quick and quick_folder and os.path.isdir(quick_folder):
             reason = blocked_reason(quick_folder)
             if reason is not None:
-                debug.log("quick folder delete blocked", {"folder": quick_folder, "reason": reason})
+                debug._log("quick folder delete blocked", {"reason": reason})
                 warning = ("The Quick Start share folder was kept because it is " +
                            reason + " and cannot be deleted by the app.")
             else:
                 try:
                     shutil.rmtree(quick_folder)
                 except Exception as e:
-                    debug.log("quick folder delete failed", str(e))
+                    debug._log("quick folder delete failed", describe_error(e))
                     warning = "The Quick Start share folder could not be deleted: " + friendly_error(e)
                 else:
                     if os.path.isdir(quick_folder):
-                        debug.log("quick folder delete incomplete", quick_folder)
+                        debug._log("quick folder delete incomplete")
                         warning = ("The Quick Start share folder could not be fully removed. "
                                    "Some files may remain; please delete it by hand.")
                     else:
-                        debug.log("quick folder deleted", quick_folder)
+                        debug._log("quick folder deleted")
         result = {"ok": True, "status": self._status_payload()}
         if warning:
             result["warning"] = warning
@@ -448,8 +445,8 @@ class Api:
     def quick_start(self):
         try:
             return self._quick_start()
-        except Exception:
-            debug.log("quick start failed", traceback.format_exc())
+        except Exception as e:
+            debug._log("quick start failed", describe_failure(e))
             raise
 
     def _quick_start(self):

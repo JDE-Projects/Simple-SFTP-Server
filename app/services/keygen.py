@@ -59,12 +59,7 @@ def generate_keypair(key_type, out_path, passphrase, username, overwrite=False):
                     else:
                         os.remove(out_path)
                 except Exception:
-                    debug.log("KEYGEN", {
-                        "restore_failed": True,
-                        "private_path": out_path,
-                        "backup_path": priv_backup,
-                        "public_path": pub_path,
-                    })
+                    debug._log("KEYGEN", {"restore_failed": True})
                     # The backup is now the only copy of the old private
                     # key, so it must survive the cleanup below.
                     priv_backup = None
@@ -76,7 +71,7 @@ def generate_keypair(key_type, out_path, passphrase, username, overwrite=False):
                         os.remove(path)
                     except OSError:
                         pass
-        debug.log("KEYGEN", {"type": key_type, "path": out_path})
+        debug._log("KEYGEN", {"type": key_type})
         return {"ok": True, "public": pubtext, "private_path": out_path}
     except PermissionError:
         return {"ok": False, "error": "Couldn't write there (permission denied). Pick a folder you can write to."}

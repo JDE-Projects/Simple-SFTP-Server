@@ -2,7 +2,7 @@ import base64
 import errno
 import hashlib
 
-from app.debug_log import debug
+from app.debug_log import debug, describe_error
 
 
 # ───────────── helpers ─────────────
@@ -24,7 +24,7 @@ def fingerprint_sha256(key):
 
 def friendly_error(e):
     try:
-        debug.log("error detail", f"{type(e).__name__}: {e}")
+        debug._log("error detail", describe_error(e))
     except Exception:
         pass
     if isinstance(e, PermissionError):

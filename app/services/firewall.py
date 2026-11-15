@@ -1,7 +1,7 @@
 import os
 import sys
 
-from app.debug_log import debug
+from app.debug_log import debug, describe_error
 
 
 # ───────────── firewall detection (advisory, read-only, no admin) ─────────────
@@ -130,5 +130,5 @@ def _firewall_status(port):
 
         return _decide_firewall(any_profile_enabled, has_allow)
     except Exception as e:
-        debug.log("firewall check failed", str(e))
+        debug._log("firewall check failed", describe_error(e))
         return "unknown"

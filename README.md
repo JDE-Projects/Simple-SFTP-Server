@@ -195,9 +195,10 @@ separately from Windows Defender Firewall.
 - The host key persists next to the app so its fingerprint is stable; treat
   that file as private and do not commit it.
 - The optional debug log is off by default; when on it writes
-  `Debug_Log_MMDDYYYY_HHMMSS.txt` next to the app. It records activity and
-  errors but no passwords or key material, and a redaction pass on every entry
-  enforces that even for captured error traces. Each file stops at 5 MiB and
+  `Debug_Log_MMDDYYYY_HHMMSS.txt` next to the app. It records event names,
+  outcomes, IP addresses, and the kind of each error, never usernames, typed
+  text, file paths, or error messages. A redaction pass on every entry is a
+  second guard against passwords and key material. Each file stops at 5 MiB and
   logging continues in a new file. The app keeps the current file plus up to 3
   older ones (20 MiB at most), deleting the oldest at launch, when logging is
   turned on, and when a file fills. It deletes only files named exactly like

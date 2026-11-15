@@ -1,3 +1,4 @@
+import errno
 import json
 import os
 import re
@@ -5,6 +6,42 @@ import threading
 from datetime import datetime
 
 from app.paths import exe_dir
+
+
+def describe_error(error):
+    """Return a safe, fixed description without inspecting error text."""
+    parts = [type(error).__name__]
+    number = getattr(error, "errno", None)
+    if isinstance(number, int) and not isinstance(number, bool):
+        code = errno.errorcode.get(number)
+        if code:
+            parts.append(code)
+    winerror = getattr(error, "winerror", None)
+    if isinstance(winerror, int) and not isinstance(winerror, bool):
+        parts.append(f"WinError {winerror}")
+    return ": ".join(parts)
+
+
+def describe_failure(error, package="app"):
+    """Describe an error for the debug log in place of a traceback: the error
+    kind from describe_error, plus the file name and line of the innermost
+    frame in this app's own code (for example "KeyError at api.py:212"). A
+    full traceback is never logged, because it carries the error message.
+
+    Frames are matched by module name, not file path, because the built exe
+    records source file names differently from a source run. Pass the app's
+    package name when it is not "app"."""
+    frames = []
+    trace = error.__traceback__
+    while trace is not None:
+        frames.append(trace)
+        trace = trace.tb_next
+    for frame in reversed(frames):
+        module = frame.tb_frame.f_globals.get("__name__", "")
+        if module == "__main__" or module.startswith(package + "."):
+            name = os.path.basename(frame.tb_frame.f_code.co_filename)
+            return f"{describe_error(error)} at {name}:{frame.tb_lineno}"
+    return describe_error(error)
 
 
 # ───────────── credential redaction ─────────────
@@ -84,7 +121,7 @@ class DebugLog:
         for message in warnings:
             self._warn(message)
             if self._on:
-                self.log("WARNING", message)
+                self._log("WARNING", message)
 
     def is_enabled(self):
         return self._on
@@ -120,7 +157,7 @@ class DebugLog:
             warnings = self._prune_locked(self._path)
         self._emit(warnings)
 
-    def log(self, label, content=""):
+    def _log(self, label, content=""):
         warnings = []
         with self._lock:
             if self._on and self._path:
