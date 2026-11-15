@@ -60,8 +60,7 @@ Two ways to get it from the [Releases](../../releases) page - pick one:
 
 - **Installer (recommended):** download `SimpleSFTPServer-vX.Y.Z-setup.exe` and
   run it. It installs the app, adds a Start menu shortcut, and can be removed
-  later from Add or Remove Programs. Installs just for you by default (no admin
-  needed); you can choose all users during setup.
+  later from Add or Remove Programs. Installs just for you, no admin needed.
 - **Portable .zip:** download `SimpleSFTPServer-vX.Y.Z.zip`, extract it, and run
   `Simple SFTP Server.exe` from inside the extracted folder. No install - good
   for a locked-down PC or a USB stick. Keep the folder together; the exe needs
