@@ -39,12 +39,16 @@ def generate_keypair(key_type, out_path, passphrase, username, overwrite=False):
         try:
             with open(priv_tmp, "wb") as f:
                 f.write(priv)
+                f.flush()
+                os.fsync(f.fileno())
             try:
                 os.chmod(priv_tmp, 0o600)
             except OSError:
                 pass
             with open(pub_tmp, "w", encoding="utf-8") as f:
                 f.write(pubtext + "\n")
+                f.flush()
+                os.fsync(f.fileno())
 
             if os.path.exists(out_path):
                 priv_backup = out_path + f".tmp-{os.getpid()}-{uuid.uuid4().hex}"
