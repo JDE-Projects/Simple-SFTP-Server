@@ -22,11 +22,15 @@ def describe_error(error):
     return ": ".join(parts)
 
 
-def describe_failure(error):
-    """Return a safe error kind and its innermost app traceback location.
+def describe_failure(error, package="app"):
+    """Describe an error for the debug log in place of a traceback: the error
+    kind from describe_error, plus the file name and line of the innermost
+    frame in this app's own code (for example "KeyError at api.py:212"). A
+    full traceback is never logged, because it carries the error message.
 
     Frames are matched by module name, not file path, because the built exe
-    records source file names differently from a source run."""
+    records source file names differently from a source run. Pass the app's
+    package name when it is not "app"."""
     frames = []
     trace = error.__traceback__
     while trace is not None:
@@ -34,13 +38,9 @@ def describe_failure(error):
         trace = trace.tb_next
     for frame in reversed(frames):
         module = frame.tb_frame.f_globals.get("__name__", "")
-        if module == "__main__" or module == "simple_sftp_server":
-            name = "simple_sftp_server.py"
-        elif module.startswith("app."):
-            name = module.rsplit(".", 1)[-1] + ".py"
-        else:
-            continue
-        return f"{describe_error(error)} at {name}:{frame.tb_lineno}"
+        if module == "__main__" or module.startswith(package + "."):
+            name = os.path.basename(frame.tb_frame.f_code.co_filename)
+            return f"{describe_error(error)} at {name}:{frame.tb_lineno}"
     return describe_error(error)
 
 
