@@ -4,7 +4,8 @@
 // config holding the one user tools/ui_check/fixture.py writes (a regular
 // Start needs at least one user).
 //
-// Covers: the page-to-Python bridge answering with the real version; a bad
+// Covers: the page-to-Python bridge answering with the real version; a
+// message shown over another keeping its full time on screen; a bad
 // port refused with a plain-language message; a theme round trip with a
 // screenshot of each theme; a regular start and stop on an unusual port; and
 // three Quick Start runs checking the stop dialog: the first (folder created
@@ -19,12 +20,20 @@
 
 const PORT = 48222;
 
+// Returns false on a timeout instead of throwing, so the calling check records
+// the message text actually on screen.
 async function toastShows(helpers, pattern, timeoutMs = 8000) {
-  return helpers.waitFor(
-    `document.getElementById('toast').classList.contains('show') && ${pattern}.test(document.getElementById('toast').textContent)`,
-    timeoutMs
-  );
+  try {
+    return await helpers.waitFor(
+      `document.getElementById('toast').classList.contains('show') && ${pattern}.test(document.getElementById('toast').textContent)`,
+      timeoutMs
+    );
+  } catch {
+    return false;
+  }
 }
+
+const pause = (helpers, ms) => helpers.evaluate(`new Promise(r => setTimeout(r, ${ms}))`);
 
 async function waitStopped(helpers) {
   await helpers.waitFor("running === false && !document.getElementById('startBtn').disabled", 10000);
@@ -54,6 +63,16 @@ export default async function smoke(helpers) {
   const m = await evaluate("API.get_meta()");
   check("bridge get_meta answers with the version shown on screen", "v" + m.version === verLabel,
     JSON.stringify(m));
+
+  // A message shown while another is still up gets its full time on screen:
+  // the first message's hide timer (3.4 s) must not cut the second one short.
+  await evaluate("toast('first message')");
+  await pause(helpers, 2000);
+  await evaluate("toast('second message')");
+  await pause(helpers, 2000);
+  check("second message outlasts the first message's hide timer",
+    await evaluate("document.getElementById('toast').classList.contains('show')"));
+  await waitFor("!document.getElementById('toast').classList.contains('show')", 6000);
 
   // Error path: a bad port is refused in plain language and nothing starts.
   await type("#port", "abc");

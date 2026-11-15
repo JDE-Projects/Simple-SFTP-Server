@@ -411,7 +411,9 @@ let cur=null, curAt=0, pwShown=false;
 let pollTimer=null, tickTimer=null;
 let umPwVisible=false;
 
-function toast(m,lvl){const t=$("toast");t.textContent=m;const c=(lvl===true||lvl==="err")?"err ":(lvl==="warn")?"warn ":"";t.className=c+"show";setTimeout(()=>t.className=t.className.replace("show","").trim(),3400);}
+// One hide timer at a time: a new message cancels the previous one's timer, so it gets its full time on screen.
+let toastTimer=null;
+function toast(m,lvl){const t=$("toast");t.textContent=m;const c=(lvl===true||lvl==="err")?"err ":(lvl==="warn")?"warn ":"";t.className=c+"show";clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.className=t.className.replace("show","").trim(),3400);}
 function copyText(s){if(navigator.clipboard)navigator.clipboard.writeText(s);}
 
 /* ---------- modal dialog helpers ---------- */
