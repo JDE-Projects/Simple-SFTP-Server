@@ -1,4 +1,6 @@
 GITHUB_REPO = "JDE-Projects/Simple-SFTP-Server"
+# The only website the open_url bridge will open (the header byline link).
+ALLOWED_URL_HOST = "jde-projects.com"
 DEFAULT_PORT = 2222
 
 DISABLED_ALGORITHMS = {
