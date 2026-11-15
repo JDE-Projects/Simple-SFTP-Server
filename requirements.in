@@ -12,6 +12,6 @@ truststore==0.10.4
 # SFTP transport and key handling. cryptography and bcrypt are used directly;
 # PyNaCl is paramiko's crypto dependency.
 paramiko==5.0.0
-cryptography==50.0.1
+cryptography==50.0.2
 bcrypt==5.0.0
 PyNaCl==1.6.2
