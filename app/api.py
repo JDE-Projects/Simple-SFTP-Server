@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import threading
+import urllib.parse
 import webbrowser
 from datetime import datetime, timezone
 
@@ -11,7 +12,7 @@ import paramiko
 
 from app import paths
 from app.atomic import atomic_write_json
-from app.constants import DEFAULT_PORT, GITHUB_REPO
+from app.constants import ALLOWED_URL_HOST, DEFAULT_PORT, GITHUB_REPO
 from app.debug_log import debug, describe_error, describe_failure
 from app.helpers import fingerprint_sha256, friendly_error
 from app.server import DEFAULT_PERMISSIONS, QUICK_PERMISSIONS, SFTPService, perms_for
@@ -40,6 +41,21 @@ def _valid_authorized_key(line):
         return key.get_base64() == parts[1]
     except Exception:
         return False
+
+
+def _is_allowed_url(url):
+    """True only for a plain https address on the JDE-Projects website: no
+    other host, scheme, port, login part, or whitespace/control characters.
+    The whole site name is compared, never how the address starts, so
+    https://jde-projects.com.evil.example is refused."""
+    if not isinstance(url, str) or any(c.isspace() or ord(c) < 32 for c in url):
+        return False
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False
+    # Comparing the whole netloc rules out ports and user@host tricks.
+    return parts.scheme == "https" and parts.netloc == ALLOWED_URL_HOST
 
 
 # ───────────── js api ─────────────
@@ -528,6 +544,12 @@ class Api:
         return _check_update(self._app_version, GITHUB_REPO)
 
     def open_url(self, url):
+        """Open a page in the user's browser. Only the JDE-Projects website is
+        allowed (see _is_allowed_url), because any script that gets into the
+        page can call this bridge method."""
+        if not _is_allowed_url(url):
+            debug._log("open_url refused an address outside the allowed site")
+            return {"ok": False, "error": "That link isn't allowed."}
         try:
             webbrowser.open(url)
             return {"ok": True}
