@@ -10,3 +10,4 @@ jobs:
       contents: read
     with:
       entry_script: "simple_sftp_server.py"
+      verify_runtime_lock: true

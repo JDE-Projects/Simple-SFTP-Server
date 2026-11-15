@@ -17,3 +17,4 @@ jobs:
       build_command: "Build_Simple_SFTP_Server.bat"
       app_id: "1d184cf8-3eba-4348-869d-f299485d38f6"
       entry_script: "simple_sftp_server.py"
+      verify_runtime_lock: true
