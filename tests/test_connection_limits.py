@@ -1,7 +1,8 @@
 """Connection admission: SFTPService bounds concurrent connections so a
 flood of clients that never finish logging in cannot spawn handler threads
-without limit. These tests exercise the admission bookkeeping (_admit /
-_release) directly, with no real sockets involved.
+without limit. Most tests exercise the admission bookkeeping (_admit /
+_release) directly, with no real sockets involved; the restart test uses a
+real loopback server.
 """
 
 from unittest.mock import Mock
@@ -78,6 +79,29 @@ def test_old_generation_release_does_not_reduce_restarted_connection_counts():
     service._release(ip, old_generation)
     assert service._conn_count == 1
     assert service._ip_counts == {ip: 1}
+
+
+def test_restart_clears_a_slot_admitted_after_a_slow_stop(sftp_server):
+    handle = sftp_server([])
+    service = handle.service
+    ip = "10.0.0.1"
+    service.stop()
+
+    # An accept loop that outlived Stop's time limit admits one more
+    # connection after Stop has already cleared the counts.
+    stray_generation = service._admit(ip)
+    assert service._conn_count == 1
+
+    r = service.start(handle.port)
+    assert r["ok"], r
+    assert service._conn_count == 0
+    assert service._ip_counts == {}
+
+    # The stray connection's later release belongs to the old run and is
+    # ignored, so it cannot push the new run's counts out of step either.
+    service._release(ip, stray_generation)
+    assert service._conn_count == 0
+    assert service._ip_counts == {}
 
 
 def test_current_generation_release_frees_a_slot():
