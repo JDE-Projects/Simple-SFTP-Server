@@ -364,3 +364,48 @@ def test_login_match_accepts_matching_key_rejects_other(tmp_path, sftp_server):
 
     with pytest.raises(paramiko.AuthenticationException):
         sftp_key(handle.port, "alice", other_key)
+
+
+def test_both_key_files_forced_to_disk_before_swap(tmp_path, monkeypatch):
+    private_path = tmp_path / "id_ed25519"
+    order = []
+    real_fsync, real_replace = os.fsync, os.replace
+
+    def tracking_fsync(fd):
+        order.append("fsync")
+        return real_fsync(fd)
+
+    def tracking_replace(source, destination):
+        order.append("replace")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr("app.services.keygen.os.fsync", tracking_fsync)
+    monkeypatch.setattr("app.services.keygen.os.replace", tracking_replace)
+
+    result = generate_keypair("Ed25519", str(private_path), "", "fixture-user")
+
+    assert result["ok"] is True
+    assert order == ["fsync", "fsync", "replace", "replace"]
+    assert private_path.read_bytes()
+    assert private_path.with_suffix(".pub").read_bytes()
+    _assert_no_keygen_staging_files(tmp_path)
+
+
+def test_overwrite_disk_sync_failure_preserves_existing_pair(tmp_path, monkeypatch):
+    private_path = tmp_path / "id_ed25519"
+    pub_path = private_path.with_suffix(".pub")
+    _write_existing_pair(private_path)
+    old_private = private_path.read_bytes()
+    old_public = pub_path.read_bytes()
+
+    def failing_fsync(_fd):
+        raise OSError(28, "simulated disk full")
+
+    monkeypatch.setattr("app.services.keygen.os.fsync", failing_fsync)
+
+    result = generate_keypair("Ed25519", str(private_path), "", "fixture-user", True)
+
+    assert result["ok"] is False
+    assert private_path.read_bytes() == old_private
+    assert pub_path.read_bytes() == old_public
+    _assert_no_keygen_staging_files(tmp_path)
