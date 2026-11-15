@@ -726,7 +726,9 @@ class SFTPService:
             self._generation += 1
             self._conn_count = 0
             self._ip_counts.clear()
-        self._accept_thread = threading.Thread(target=self._accept_loop, daemon=True)
+            gen = self._generation
+        self._accept_thread = threading.Thread(target=self._accept_loop, args=(s, gen),
+                                               daemon=True)
         self._accept_thread.start()
         self._pump_thread = threading.Thread(target=self._pump_loop, daemon=True)
         self._pump_thread.start()
@@ -794,17 +796,25 @@ class SFTPService:
         debug._log("SERVER stop")
         return {"ok": True}
 
-    def _admit(self, ip):
+    def _run_is_current(self, gen):
+        # False once Stop is pressed or a newer run has started, so a thread
+        # left over from an earlier run winds down instead of joining this one.
+        return not self._stop.is_set() and gen == self._generation
+
+    def _admit(self, ip, gen):
         # Single atomic check-and-increment so two accepts racing on the same
-        # ip cannot both slip past the cap.
+        # ip cannot both slip past the cap. An accept loop from an earlier run
+        # (gen no longer current) admits nothing.
         with self._lock:
+            if gen != self._generation:
+                return None
             if self._conn_count >= MAX_TOTAL_CONNECTIONS:
                 return None
             if self._ip_counts.get(ip, 0) >= MAX_PER_IP_CONNECTIONS:
                 return None
             self._conn_count += 1
             self._ip_counts[ip] = self._ip_counts.get(ip, 0) + 1
-            return self._generation
+            return gen
 
     def _release(self, ip, gen):
         with self._lock:
@@ -828,11 +838,10 @@ class SFTPService:
             self._reject_log_times[reason] = now
         debug._log("rejected (%s)" % reason, ip)
 
-    def _accept_loop(self):
-        while not self._stop.is_set():
-            sock = self.sock
-            if sock is None:
-                break
+    def _accept_loop(self, sock, gen):
+        # Bound to the socket and run it was started for, so a loop that
+        # outlives Stop cannot pick up the next run's socket.
+        while self._run_is_current(gen):
             try:
                 sock.settimeout(1.0)
                 conn, addr = sock.accept()
@@ -848,13 +857,16 @@ class SFTPService:
                 except Exception:
                     pass
                 continue
-            gen = self._admit(ip)
-            if gen is None:
-                self._log_rejected("capacity", ip)
+            if self._admit(ip, gen) is None:
+                stale = not self._run_is_current(gen)
+                if not stale:
+                    self._log_rejected("capacity", ip)
                 try:
                     conn.close()
                 except Exception:
                     pass
+                if stale:
+                    break
                 continue
             try:
                 threading.Thread(target=self._handle, args=(conn, addr, gen), daemon=True).start()
@@ -889,13 +901,13 @@ class SFTPService:
             t.set_keepalive(15)
             deadline = time.time() + 30
             chan = None
-            while time.time() < deadline and not self._stop.is_set():
+            while time.time() < deadline and self._run_is_current(gen):
                 chan = t.accept(1)
                 if chan is not None:
                     break
                 if not t.is_active():
                     break
-            if not server.username or chan is None:
+            if not server.username or chan is None or not self._run_is_current(gen):
                 return
             with self._lock:
                 self._sessions[sid] = {"ip": ip, "user": server.username,
@@ -906,7 +918,7 @@ class SFTPService:
                     self._conns[sid]["user"] = server.username
             debug._log("client connected", {"ip": ip})
             self.activity(sid, "connected", "")
-            while t.is_active() and not self._stop.is_set():
+            while t.is_active() and self._run_is_current(gen):
                 time.sleep(0.5)
         except paramiko.SSHException as e:
             debug._log("transport error", describe_error(e))
