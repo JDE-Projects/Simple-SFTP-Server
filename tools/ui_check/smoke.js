@@ -4,7 +4,9 @@
 // config holding the one user tools/ui_check/fixture.py writes (a regular
 // Start needs at least one user).
 //
-// Covers: the page-to-Python bridge answering with the real version; a
+// Covers: the page-to-Python bridge answering with the real version; the
+// Connection Details showing a hyphen while stopped (and Copy ignoring it),
+// filling in on start, and clearing again on stop; a
 // message shown over another keeping its full time on screen; a bad
 // port refused with a plain-language message; a theme round trip with a
 // screenshot of each theme; a regular start and stop on an unusual port; and
@@ -19,6 +21,10 @@
 // clicking "Open folder" (it opens a File Explorer window).
 
 const PORT = 48222;
+
+// Address, port, host key, public IP: in that order.
+const DETAIL_VALUES =
+  "['vLan','vPort','vFp','vPub'].map(id => document.getElementById(id).textContent)";
 
 // Returns false on a timeout instead of throwing, so the calling check records
 // the message text actually on screen.
@@ -64,6 +70,16 @@ export default async function smoke(helpers) {
   check("bridge get_meta answers with the version shown on screen", "v" + m.version === verLabel,
     JSON.stringify(m));
 
+  // Stopped: every Connection Details value shows the plain hyphen, and Copy
+  // on an empty value does nothing (no clipboard write, no "Copied" message).
+  let vals = await evaluate(DETAIL_VALUES);
+  check("stopped: Connection Details show the hyphen placeholder",
+    vals.every(v => v === "-"), JSON.stringify(vals));
+  check("page shows no em dash",
+    !(await evaluate("document.body.innerText.includes('\\u2014')")));
+  await click('.cp[data-c="vLan"]');
+  check("Copy on an empty value shows no message", !(await toastShows(helpers, "/Copied/", 1500)));
+
   // A message shown while another is still up gets its full time on screen:
   // the first message's hide timer (3.4 s) must not cut the second one short.
   await evaluate("toast('first message')");
@@ -105,12 +121,18 @@ export default async function smoke(helpers) {
   if (!ok) return;
   check("regular server reports no pre-existing Quick Start folder",
     (await evaluate("cur.quick_folder_preexisting")) === false);
+  vals = await evaluate(DETAIL_VALUES);
+  check("running: address, port, and host key filled in",
+    vals.slice(0, 3).every(v => v && v !== "-"), JSON.stringify(vals));
   await click("#stopBtn");
   await waitFor("document.getElementById('confirmModal').classList.contains('show')", 5000);
   check("regular stop dialog has no Open folder button", !(await shown(helpers, "cfOpenFolder")));
   check("regular stop dialog has no folder warning", !(await shown(helpers, "cfFolderWarning")));
   await click("#cfOk");
   await waitStopped(helpers);
+  vals = await evaluate(DETAIL_VALUES);
+  check("stopped again: Connection Details back to the hyphen",
+    vals.every(v => v === "-"), JSON.stringify(vals));
 
   // Quick Start 1: the app creates the folder, so no warning. Keep it.
   await quickStartAndOpenStopDialog(helpers, "Quick Start 1");
