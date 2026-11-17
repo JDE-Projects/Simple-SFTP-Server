@@ -9,8 +9,8 @@ import paramiko
 from app import paths
 from app.constants import (DEFAULT_PORT, DISABLED_ALGORITHMS, FAIL_RECORD_TTL_SECONDS,
                             IP_LOCKOUT_THRESHOLD, LOCKOUT_PRUNE_INTERVAL, LOCKOUT_SECONDS,
-                            LOCKOUT_THRESHOLD, MAX_PER_IP_CONNECTIONS, MAX_TOTAL_CONNECTIONS,
-                            MAX_TRACKED_IPS)
+                            LOCKOUT_THRESHOLD, MAX_PER_IP_CONNECTIONS, MAX_READ_LENGTH,
+                            MAX_TOTAL_CONNECTIONS, MAX_TRACKED_IPS)
 from app.debug_log import debug, describe_error, describe_failure
 from app.helpers import friendly_error, human_size
 from app.services.hostkey import HostKeyError, load_or_create_host_key
@@ -289,6 +289,10 @@ class JailedHandle(paramiko.SFTPHandle):
     def read(self, offset, length):
         if self.readfile is None:
             return paramiko.SFTP_PERMISSION_DENIED
+        # The client chooses the length (up to 4 GiB), and Python reserves
+        # memory for the full amount before reading. A shorter reply is
+        # allowed by the SFTP protocol, and clients ask again for the rest.
+        length = min(length, MAX_READ_LENGTH)
         try:
             self.readfile.seek(offset)
             data = self.readfile.read(length)

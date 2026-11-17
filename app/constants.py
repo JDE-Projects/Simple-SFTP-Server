@@ -27,3 +27,7 @@ LOCKOUT_PRUNE_INTERVAL = 60        # a full sweep runs at most this often on nor
 
 MAX_TOTAL_CONNECTIONS = 100  # total simultaneous live connections, handshaking + established
 MAX_PER_IP_CONNECTIONS = 10  # simultaneous live connections from one source address
+
+# Largest file chunk one SFTP read request can return. Larger requests get a
+# shorter reply. 32 KiB matches the most Paramiko's own client asks for.
+MAX_READ_LENGTH = 32 * 1024
