@@ -19,7 +19,8 @@ PREF_FILE = "simple_sftp_server.pref"  # relative to UI_DRIVE_APP_DIR, where app
 RESULT_NAME = "window_fit_result.json"
 MIN_SIZE_LOGICAL = (980, 680)  # min_size passed to create_window in the app
 FIND_TIMEOUT_S = 90
-SETTLE_S = 1.5
+STABLE_S = 2.0
+SETTLE_TIMEOUT_S = 10
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 MONITOR_DEFAULTTOPRIMARY = 1
 MONITOR_DEFAULTTONEAREST = 2
@@ -114,6 +115,31 @@ def _write_result(out_dir: Path, result: dict) -> None:
     os.replace(tmp, out_dir / RESULT_NAME)
 
 
+def _wait_for_stable_frame(hwnd) -> list:
+    """Wait until the window frame has not changed for STABLE_S seconds, giving
+    up after SETTLE_TIMEOUT_S. The app applies the saved rectangle after the
+    window is shown, and Qt can resize it again afterward, so a reading at one
+    fixed moment can catch an in-between size. Returns each distinct frame
+    seen, with seconds since the window was found, so a failed run shows
+    whether the restore was late, undone, or never happened."""
+    start = time.time()
+    history = []
+    last = None
+    last_change = start
+    while True:
+        now = time.time()
+        r = wintypes.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(r))
+        frame = _rect_dict(r)
+        if frame != last:
+            history.append({"t": round(now - start, 2), **frame})
+            last = frame
+            last_change = now
+        if now - last_change >= STABLE_S or now - start >= SETTLE_TIMEOUT_S:
+            return history
+        time.sleep(0.05)
+
+
 def _measure(case: str, work: dict, planted: dict) -> dict:
     result = {"case": case, "primary_work": work, "planted": planted, "error": None}
     deadline = time.time() + FIND_TIMEOUT_S
@@ -126,7 +152,7 @@ def _measure(case: str, work: dict, planted: dict) -> dict:
     if not hwnd:
         result["error"] = f"window titled '{WINDOW_TITLE}' did not appear within {FIND_TIMEOUT_S}s"
         return result
-    time.sleep(SETTLE_S)
+    result["frame_history"] = _wait_for_stable_frame(hwnd)
     visible = wintypes.RECT()
     hr = dwmapi.DwmGetWindowAttribute(
         hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, ctypes.byref(visible), ctypes.sizeof(visible))
