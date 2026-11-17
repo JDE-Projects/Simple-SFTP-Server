@@ -1,5 +1,5 @@
 """Tests for the debug log's credential redaction backstop and for the
-generated-password cleanup in new_password (Task 8).
+generated-password cleanup in new_password.
 
 The log is designed never to receive a password or private key. These tests
 prove the backstop still blanks them out if one ever reaches a log entry, and
