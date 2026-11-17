@@ -215,6 +215,99 @@ def test_failed_restore_keeps_private_key_backup(tmp_path, monkeypatch):
     assert len(backups) == 1
 
 
+def test_failed_restore_names_private_key_backup(tmp_path, monkeypatch):
+    private_path = tmp_path / "id_ed25519"
+    _write_existing_pair(private_path)
+    old_private = private_path.read_bytes()
+    real_replace = os.replace
+    replace_calls = 0
+
+    def failing_replace(source, destination):
+        nonlocal replace_calls
+        replace_calls += 1
+        if replace_calls >= 3:
+            raise OSError("simulated failure replacing and restoring")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr("app.services.keygen.os.replace", failing_replace)
+
+    result = generate_keypair("Ed25519", str(private_path), "", "fixture-user", True)
+
+    assert result["ok"] is False
+    backup = next(p for p in tmp_path.glob("id_ed25519.tmp-*")
+                  if p.read_bytes() == old_private)
+    assert "couldn't be put back" in result["error"]
+    assert str(backup) in result["error"]
+
+
+def test_failed_restore_permission_error_names_backup(tmp_path, monkeypatch):
+    private_path = tmp_path / "id_ed25519"
+    _write_existing_pair(private_path)
+    old_private = private_path.read_bytes()
+    real_replace = os.replace
+    replace_calls = 0
+
+    def failing_replace(source, destination):
+        nonlocal replace_calls
+        replace_calls += 1
+        if replace_calls >= 3:
+            raise PermissionError("simulated permission failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr("app.services.keygen.os.replace", failing_replace)
+
+    result = generate_keypair("Ed25519", str(private_path), "", "fixture-user", True)
+
+    assert result["ok"] is False
+    backup = next(p for p in tmp_path.glob("id_ed25519.tmp-*")
+                  if p.read_bytes() == old_private)
+    assert str(backup) in result["error"]
+
+
+def test_failed_cleanup_without_old_key_names_leftover(tmp_path, monkeypatch):
+    private_path = tmp_path / "id_ed25519"
+    real_replace = os.replace
+    replace_calls = 0
+
+    def failing_replace(source, destination):
+        nonlocal replace_calls
+        replace_calls += 1
+        if replace_calls >= 2:
+            raise OSError("simulated public key failure")
+        return real_replace(source, destination)
+
+    def failing_remove(path):
+        if os.fspath(path) == str(private_path):
+            raise OSError("simulated cleanup failure")
+        return os.unlink(path)
+
+    monkeypatch.setattr("app.services.keygen.os.replace", failing_replace)
+    monkeypatch.setattr("app.services.keygen.os.remove", failing_remove)
+
+    result = generate_keypair("Ed25519", str(private_path), "", "fixture-user", True)
+
+    assert result["ok"] is False
+    assert private_path.exists()
+    assert str(private_path) in result["error"]
+    assert "without its public key" in result["error"]
+
+
+def test_private_key_move_failure_without_old_key_is_plain_failure(tmp_path, monkeypatch):
+    private_path = tmp_path / "id_ed25519"
+
+    def failing_replace(source, destination):
+        raise OSError("simulated private key failure")
+
+    monkeypatch.setattr("app.services.keygen.os.replace", failing_replace)
+
+    result = generate_keypair("Ed25519", str(private_path), "", "fixture-user", True)
+
+    assert result == {"ok": False,
+                      "error": "Key generation failed. Check the type and passphrase."}
+    assert not private_path.exists()
+    _assert_no_keygen_staging_files(tmp_path)
+
+
 def test_successful_overwrite_replaces_pair_without_staging_files(tmp_path):
     private_path = tmp_path / "id_ed25519"
     pub_path = private_path.with_suffix(".pub")
