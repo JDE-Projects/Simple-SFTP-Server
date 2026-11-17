@@ -574,12 +574,18 @@ class JailedSFTP(paramiko.SFTPServerInterface):
 
 # ───────────── SSH server interface (auth) ─────────────
 class ServerIface(paramiko.ServerInterface):
-    def __init__(self, service, ip, sid):
+    def __init__(self, service, ip, sid, transport=None):
         self.service = service
         self.ip = ip
         self.sid = sid
+        self.transport = transport
         self.username = None
         self.user = None
+        # Accounts whose public key matched, by username. A match alone is
+        # not a sign-in: the client has not yet proven it holds the private
+        # key. The sign-in is recorded when the session opens (see
+        # _finish_sign_in), which Paramiko allows only after the proof passed.
+        self._key_matches = {}
         # One ServerIface exists per SSH connection, so these flags cap each
         # connection at one session channel and one SFTP subsystem.
         self._channel_lock = threading.Lock()
@@ -621,7 +627,7 @@ class ServerIface(paramiko.ServerInterface):
             for ak in u.get("authorized_keys", []):
                 parts = ak.split()
                 if len(parts) >= 2 and parts[1] == offered:
-                    self._win(username, u)
+                    self._key_matches[username] = u
                     return paramiko.AUTH_SUCCESSFUL
         # A rejected key is not counted toward lockout. Every account offers
         # key sign-in, so clients try each key they hold before asking for a
@@ -636,6 +642,19 @@ class ServerIface(paramiko.ServerInterface):
         self.user = user
         self.service.lockout.clear(self.ip, username)
 
+    def _finish_sign_in(self):
+        # A password sign-in is recorded as soon as the password checks out.
+        # A key sign-in is recorded here, under the name the connection
+        # actually signed in as.
+        if self.username is not None:
+            return True
+        name = self.transport.get_username() if self.transport else None
+        user = self._key_matches.get(name)
+        if user is None:
+            return False
+        self._win(name, user)
+        return True
+
     def check_channel_request(self, kind, chanid):
         # The connection limits count TCP connections, not channels. Without
         # this cap, one signed-in client could open any number of channels on
@@ -648,6 +667,9 @@ class ServerIface(paramiko.ServerInterface):
         with self._channel_lock:
             if self._session_granted:
                 debug._log("extra channel refused", {"ip": self.ip})
+                return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+            if not self._finish_sign_in():
+                debug._log("channel refused, no sign-in recorded", {"ip": self.ip})
                 return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
             self._session_granted = True
         return paramiko.OPEN_SUCCEEDED
@@ -931,7 +953,7 @@ class SFTPService:
             t.local_version = "SSH-2.0-SimpleSFTPServer"
             t.add_server_key(self.host_key)
             t.set_subsystem_handler("sftp", paramiko.SFTPServer, JailedSFTP)
-            server = ServerIface(self, ip, sid)
+            server = ServerIface(self, ip, sid, t)
             t.start_server(server=server)
             # Ping the client every 15s. If the link dies silently (a network
             # blip, a NAT/router timeout) the send fails, paramiko marks the

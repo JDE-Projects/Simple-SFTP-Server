@@ -174,6 +174,99 @@ def test_rejected_keys_do_not_lock_out_password_user(tmp_path, sftp_server):
     _close(client, sftp)
 
 
+# ───────────── lockout is cleared only by a completed sign-in ─────────────
+
+class _FakeTransport:
+    def __init__(self, username=None):
+        self.username = username
+
+    def get_username(self):
+        return self.username
+
+
+def test_matching_public_key_without_proof_keeps_failure_count(tmp_path):
+    client_key = paramiko.RSAKey.generate(2048)
+    user = make_user("either", tmp_path, _perms(), auth="both", password="right-pw",
+                     authorized_keys=[authorized_key_line(client_key)])
+    service = _AuthService([user])
+    iface = server_module.ServerIface(service, "127.0.0.1", 1, _FakeTransport())
+
+    for _ in range(LOCKOUT_THRESHOLD - 1):
+        assert iface.check_auth_password("either", "wrong-pw") == paramiko.AUTH_FAILED
+    # Paramiko asks this before the client proves it holds the private key.
+    assert iface.check_auth_publickey("either", client_key) == paramiko.AUTH_SUCCESSFUL
+    assert iface.username is None
+    iface.check_auth_password("either", "wrong-pw")
+
+    assert service.lockout.is_locked("127.0.0.1", "either")
+
+
+def test_session_uses_the_name_that_completed_sign_in(tmp_path):
+    alice_key = paramiko.RSAKey.generate(2048)
+    alice = make_user("alice", tmp_path, _perms(), auth="key",
+                      authorized_keys=[authorized_key_line(alice_key)])
+    bob = make_user("bob", tmp_path, _perms(), password="bob-pw")
+    transport = _FakeTransport()
+    iface = server_module.ServerIface(_AuthService([alice, bob]), "127.0.0.1", 1, transport)
+
+    iface.check_auth_publickey("alice", alice_key)
+    assert iface.check_auth_password("bob", "bob-pw") == paramiko.AUTH_SUCCESSFUL
+    transport.username = "bob"
+
+    assert iface.check_channel_request("session", 0) == paramiko.OPEN_SUCCEEDED
+    assert iface.username == "bob"
+    assert iface.user is bob
+
+
+def test_key_sign_in_records_user_when_session_opens(tmp_path):
+    client_key = paramiko.RSAKey.generate(2048)
+    user = make_user("alice", tmp_path, _perms(), auth="key",
+                     authorized_keys=[authorized_key_line(client_key)])
+    service = _AuthService([user])
+    service.lockout.record_fail("127.0.0.1", "alice")
+    transport = _FakeTransport()
+    iface = server_module.ServerIface(service, "127.0.0.1", 1, transport)
+
+    iface.check_auth_publickey("alice", client_key)
+    transport.username = "alice"
+
+    assert iface.check_channel_request("session", 0) == paramiko.OPEN_SUCCEEDED
+    assert iface.username == "alice"
+    assert iface.user is user
+    assert ("127.0.0.1", "alice") not in service.lockout._fails
+
+
+def test_session_refused_when_no_sign_in_was_recorded(tmp_path):
+    iface = server_module.ServerIface(_AuthService([]), "127.0.0.1", 1,
+                                      _FakeTransport("ghost"))
+
+    assert (iface.check_channel_request("session", 0)
+            == paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED)
+    assert iface.username is None
+
+
+def test_real_key_sign_in_still_clears_failures(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    password = "correct horse battery staple"
+    client_key = paramiko.RSAKey.generate(2048)
+    user = make_user("either", home, _perms(), auth="both", password=password,
+                     authorized_keys=[authorized_key_line(client_key)])
+    handle = sftp_server([user])
+
+    for _ in range(LOCKOUT_THRESHOLD - 1):
+        with pytest.raises(paramiko.AuthenticationException):
+            sftp_password(handle.port, "either", "wrong password")
+    client, sftp = sftp_key(handle.port, "either", client_key)
+    _close(client, sftp)
+    for _ in range(LOCKOUT_THRESHOLD - 1):
+        with pytest.raises(paramiko.AuthenticationException):
+            sftp_password(handle.port, "either", "wrong password")
+
+    client, sftp = sftp_password(handle.port, "either", password)
+    _close(client, sftp)
+
+
 # ───────────── jail ─────────────
 
 def test_jail_blocks_traversal_and_absolute_paths(tmp_path, sftp_server):
