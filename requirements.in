@@ -7,7 +7,7 @@ PySide6==6.12.0
 qtpy==2.4.3
 pyinstaller==6.22.3
 # truststore routes update-check TLS through the Windows certificate store.
-truststore==0.10.4
+truststore==0.10.5
 
 # SFTP transport and key handling. cryptography and bcrypt are used directly;
 # PyNaCl is paramiko's crypto dependency.
