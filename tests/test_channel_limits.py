@@ -80,7 +80,9 @@ def test_second_sftp_subsystem_on_one_channel_is_refused(tmp_path, sftp_server):
     handle = _start(tmp_path, sftp_server)
     service = handle.service
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    # Trust exactly this test server's host key instead of accepting any key.
+    client.get_host_keys().add("[127.0.0.1]:%d" % handle.port,
+                               service.host_key.get_name(), service.host_key)
     client.connect("127.0.0.1", port=handle.port, username="bob", password=PASSWORD,
                    allow_agent=False, look_for_keys=False, timeout=10)
     try:
