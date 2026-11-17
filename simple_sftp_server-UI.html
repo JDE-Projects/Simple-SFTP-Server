@@ -327,7 +327,8 @@
     <button id="umMake" class="btn-ghost btn-sm" style="margin:0;white-space:nowrap" title="Create a folder named <user>-share next to the app">Make folder</button></div>
     <div class="meta" style="color:var(--text-dim);margin-top:5px">The user is locked to this folder. A path that doesn't exist yet will be created on save.</div></div></div>
   <div class="row"><div class="f"><label class="field-label">Sign-in method</label>
-    <div class="seg" id="umAuth"><button data-v="password" class="on">Password</button><button data-v="key">Public key</button><button data-v="both">Both</button></div></div></div>
+    <div class="seg" id="umAuth"><button data-v="password" class="on">Password</button><button data-v="key">Public key</button><button data-v="both">Password or key</button></div>
+    <div id="umAuthHelp" class="meta" style="color:var(--text-dim);margin-top:5px;display:none">Either one signs the user in on its own. Both are not required together.</div></div></div>
   <div id="umPwWrap" class="row"><div class="f"><label class="field-label">Password</label>
     <div style="display:flex;gap:8px">
       <div class="pw-wrap">
@@ -492,7 +493,7 @@ function permSummary(p){
   return on.map(k=>labels[k]).join(", ");
 }
 
-const AUTHLBL={password:"Password",key:"Key",both:"Password + key"};
+const AUTHLBL={password:"Password",key:"Key",both:"Password or key"};
 
 window.addEventListener("pywebviewready",init);
 window.appEvent=function(ev,p){
@@ -825,6 +826,7 @@ function setAuth(v){
   document.querySelectorAll("#umAuth button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
   $("umPwWrap").style.display=(v==="password"||v==="both")?"flex":"none";
   $("umKeyWrap").style.display=(v==="key"||v==="both")?"flex":"none";
+  $("umAuthHelp").style.display=(v==="both")?"block":"none";
 }
 
 function getPermissions(){

@@ -4,7 +4,9 @@
 //
 // Covers: the Users table keeps each row's Edit and Delete buttons inside the
 // panel with a long username, a long folder path, the longest permissions
-// summary, and a password-and-key user; the
+// summary, and a password-or-key user; the account editor's sign-in choices
+// fit on one row and the "Password or key" helper note shows only for that
+// choice; the
 // update notice sits on the bar's true center and the bar stays one row; the
 // Public IP button names the services it asks. Each layout check runs twice:
 // at the window's own width, and with the page narrowed to 960px, a little
@@ -68,6 +70,41 @@ async function measureBar(helpers, label, emptyHeight) {
     `height ${b.barH}, empty ${emptyHeight}`);
 }
 
+// Opens the account editor and walks the three sign-in choices: the helper
+// note shows only for "Password or key", and the three buttons stay on one
+// row inside the dialog. Screenshots the editor with that choice picked in
+// both themes, then closes it without saving.
+async function checkEditor(helpers, label, shotName) {
+  const { click, evaluate, check, screenshot } = helpers;
+  await click("#addUser");
+  for (const v of ["password", "key", "both"]) {
+    await click(`#umAuth button[data-v="${v}"]`);
+    const helpShown = await evaluate("document.getElementById('umAuthHelp').offsetParent !== null");
+    check(`${label}: editor helper note ${v === "both" ? "shown" : "hidden"} for ${v}`,
+      helpShown === (v === "both"), `shown=${helpShown}`);
+  }
+  const e = await evaluate(`(() => {
+    const btns = [...document.querySelectorAll('#umAuth button')];
+    const rs = btns.map(b => b.getBoundingClientRect());
+    const card = document.querySelector('#userModal .card').getBoundingClientRect();
+    return { text: btns[2].textContent,
+             oneRow: rs.every(r => Math.abs(r.top - rs[0].top) < 1),
+             inside: rs.every(r => r.left >= card.left - 0.5 && r.right <= card.right + 0.5),
+             noWrap: btns.every(b => b.scrollWidth <= b.clientWidth) };
+  })()`);
+  check(`${label}: third sign-in choice reads "Password or key"`, e.text === "Password or key", e.text);
+  check(`${label}: sign-in choices on one row, inside the dialog, text not cut`,
+    e.oneRow && e.inside && e.noWrap, JSON.stringify(e));
+  // The open dialog covers the theme button, so it is pressed from the page.
+  const toggleTheme = "document.getElementById('theme-btn').click()";
+  await screenshot(`${shotName}-dark`, 0);
+  await evaluate(toggleTheme);
+  check(`${label}: editor switches to light`, await evaluate("document.body.classList.contains('light')"));
+  await screenshot(`${shotName}-light`, 0);
+  await evaluate(toggleTheme);
+  await click("#umCancel");
+}
+
 async function showNotice(helpers) {
   const { click, waitFor, evaluate } = helpers;
   await evaluate("document.getElementById('updateNotice').textContent=''");
@@ -101,10 +138,12 @@ export default async function layout(helpers) {
   check("full width: notice appears after Check for updates", await showNotice(helpers));
   await measureBar(helpers, "full width", emptyHeight);
   await screenshot("layout-full-width", 0);
+  await checkEditor(helpers, "full width", "editor-full-width");
 
   await evaluate(`document.querySelector('.app').style.width='${NARROW_PX}px'`);
   await measure(helpers, `${NARROW_PX}px`);
   check(`${NARROW_PX}px: notice appears after Check for updates`, await showNotice(helpers));
   await measureBar(helpers, `${NARROW_PX}px`, emptyHeight);
   await screenshot("layout-narrow", 0);
+  await checkEditor(helpers, `${NARROW_PX}px`, "editor-narrow");
 }

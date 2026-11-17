@@ -24,8 +24,8 @@ If you enjoyed this project and would like to buy me a coffee, check out my [Ko-
   jail so each user only ever sees inside their own folder.
 - Three access modes per user: read-only, read & write, or upload-only
   (a drop box). Deleting and renaming is off unless you allow it.
-- Sign-in by password, public key, or both, with a built-in Ed25519 (default)
-  or RSA-4096 key generator for users who have none.
+- Sign-in by password, public key, or either one, with a built-in Ed25519
+  (default) or RSA-4096 key generator for users who have none.
 - Connection card: LAN address, on-demand public IP, port, and the host-key
   fingerprint, all copyable for first-connection verification.
 - Live panel: connected clients with what each one is doing right now (listing a
