@@ -24,6 +24,11 @@
       "fixture": "tools/ui_check/fixture.py",
       "timeout_s": 120
     },
+    "keygen-errors": {
+      "script": "tools/ui_check/keygen_errors.js",
+      "fixture": "tools/ui_check/fixture.py",
+      "timeout_s": 120
+    },
     "window-fit-oversized": {
       "script": "tools/ui_check/window_fit.js",
       "fixture": "tools/ui_check/window_fit_oversized_fixture.py",

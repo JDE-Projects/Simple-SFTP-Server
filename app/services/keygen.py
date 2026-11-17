@@ -95,7 +95,9 @@ def generate_keypair(key_type, out_path, passphrase, username, overwrite=False):
         debug._log("KEYGEN", {"type": key_type})
         return {"ok": True, "public": pubtext, "private_path": out_path}
     except _RestoreFailed as e:
-        return {"ok": False, "error": str(e)}
+        # restore_failed tells the UI to show the message in a dialog that
+        # stays open, since it names a file path the user has to act on.
+        return {"ok": False, "restore_failed": True, "error": str(e)}
     except PermissionError:
         return {"ok": False, "error": "Couldn't write there (permission denied). Pick a folder you can write to."}
     except Exception:
