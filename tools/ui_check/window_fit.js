@@ -29,7 +29,11 @@ export default async function windowFit(helpers) {
   if (res.error) return;
 
   const { visible, work } = res;
-  const detail = `visible ${fmt(visible)} work ${fmt(work)} frame ${fmt(res.frame)} planted ${JSON.stringify(res.planted)} dpi ${res.dpi}`;
+  // frame_history: each distinct frame the fixture saw while waiting for the
+  // window to settle, with seconds since it appeared.
+  const history = (res.frame_history || [])
+    .map((h) => `${h.t}s ${h.right - h.left}x${h.bottom - h.top} at ${h.left},${h.top}`).join('; ');
+  const detail = `visible ${fmt(visible)} work ${fmt(work)} frame ${fmt(res.frame)} planted ${JSON.stringify(res.planted)} dpi ${res.dpi} history [${history}]`;
   check("work area is at least the app's minimum window size", !res.work_too_small,
     `work ${fmt(work)} is smaller than min size ${res.min_size.width}x${res.min_size.height}; cannot judge fitting`);
   if (res.work_too_small) return;
