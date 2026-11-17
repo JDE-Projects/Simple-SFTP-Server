@@ -68,8 +68,14 @@ def _restore_geometry():
     DPI-aware Windows reports scaled-down screen coordinates and a spot near the right
     or bottom edge, or on a second monitor, would wrongly look off-screen."""
     try:
-        return _valid_geometry(load_prefs().get("window"))
-    except Exception:
+        prefs = load_prefs()
+        saved = prefs.get("window")
+        geometry = _valid_geometry(saved)
+        if "window" in prefs and saved is not None and not geometry:
+            debug._log("window restore: saved size unusable, using default")
+        return geometry
+    except Exception as e:
+        debug._log("window restore: saved size not read", describe_error(e))
         return {}
 
 
@@ -234,13 +240,16 @@ def _apply_window_rect(geo):
         point = wintypes.POINT(geo["x"] + 100, geo["y"] + 30)
         hmonitor = user32.MonitorFromPoint(point, MONITOR_DEFAULTTONULL)
         if not hmonitor:
+            debug._log("window restore: saved spot not on any monitor, kept default spot")
             return
         work = _monitor_work_area(hmonitor)
         if work is None:
+            debug._log("window restore: monitor work area not read (first pass)")
             return
         u = _win32()
         hwnd = _own_window_handle("Simple SFTP Server")
         if not hwnd:
+            debug._log("window restore: app window not found")
             return
         SWP_NOZORDER, SWP_NOACTIVATE = 0x0004, 0x0010
         rect = fit_rect_to_work_area(geo["x"], geo["y"], geo["width"], geo["height"],
@@ -252,22 +261,25 @@ def _apply_window_rect(geo):
         time.sleep(0.3)
         current = wintypes.RECT()
         if not u.GetWindowRect(hwnd, ctypes.byref(current)):
+            debug._log("window restore: window size not read after move")
             return
         user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
         user32.MonitorFromWindow.restype = wintypes.HMONITOR
         hmonitor = user32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
         if not hmonitor:
+            debug._log("window restore: monitor not found for second fit")
             return
         work = _monitor_work_area(hmonitor)
         if work is None:
+            debug._log("window restore: monitor work area not read (second pass)")
             return
         current_rect = (current.left, current.top,
                         current.right - current.left, current.bottom - current.top)
         fitted_rect = fit_rect_to_work_area(*current_rect, work, _frame_insets(hwnd))
         if fitted_rect != current_rect:
             u.SetWindowPos(hwnd, None, *fitted_rect, SWP_NOZORDER | SWP_NOACTIVATE)
-    except Exception:
-        pass
+    except Exception as e:
+        debug._log("window restore: failed", describe_error(e))
 
 
 def _save_geometry(win=None):
