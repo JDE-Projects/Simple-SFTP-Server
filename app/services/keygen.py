@@ -7,6 +7,10 @@ import paramiko
 from app.debug_log import debug
 
 
+class _RestoreFailed(Exception):
+    """A failed key swap could not be undone; the message tells the user what was left behind."""
+
+
 def generate_keypair(key_type, out_path, passphrase, username, overwrite=False):
     try:
         from cryptography.hazmat.primitives import serialization
@@ -56,17 +60,30 @@ def generate_keypair(key_type, out_path, passphrase, username, overwrite=False):
             try:
                 os.replace(priv_tmp, out_path)
                 os.replace(pub_tmp, pub_path)
-            except Exception:
+            except Exception as swap_error:
                 try:
                     if priv_backup:
                         os.replace(priv_backup, out_path)
                     else:
-                        os.remove(out_path)
+                        try:
+                            os.remove(out_path)
+                        except FileNotFoundError:
+                            pass
                 except Exception:
                     debug._log("KEYGEN", {"restore_failed": True})
-                    # The backup is now the only copy of the old private
-                    # key, so it must survive the cleanup below.
-                    priv_backup = None
+                    if priv_backup:
+                        kept = priv_backup
+                        # The backup is now the only copy of the old private
+                        # key, so it must survive the cleanup below.
+                        priv_backup = None
+                        raise _RestoreFailed(
+                            "Key generation failed, and the old private key couldn't be put back. "
+                            f"It is saved as {kept}. Rename it to {os.path.basename(out_path)} "
+                            "to restore it. Until then, the key files at that path may be "
+                            "missing or not match.") from swap_error
+                    raise _RestoreFailed(
+                        f"Key generation failed, and a new private key was left at {out_path} "
+                        "without its public key file. Delete it before trying again.") from swap_error
                 raise
         finally:
             for path in (priv_tmp, pub_tmp, priv_backup):
@@ -77,6 +94,8 @@ def generate_keypair(key_type, out_path, passphrase, username, overwrite=False):
                         pass
         debug._log("KEYGEN", {"type": key_type})
         return {"ok": True, "public": pubtext, "private_path": out_path}
+    except _RestoreFailed as e:
+        return {"ok": False, "error": str(e)}
     except PermissionError:
         return {"ok": False, "error": "Couldn't write there (permission denied). Pick a folder you can write to."}
     except Exception:
