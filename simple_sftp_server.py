@@ -21,6 +21,7 @@ import ctypes
 import os
 import shlex
 import sys
+from ctypes import wintypes
 
 from app.api import Api
 from app.debug_log import debug
@@ -85,32 +86,111 @@ def strip_remote_debugging(environ, argv, frozen):
     argv[1:] = _drop_remote_debugging(argv[1:])
 
 
-# ───────────── main ─────────────
+# ───────────── single instance ─────────────
+# Only one copy may run: two copies would read and replace the same config,
+# preferences, and host-key files, and one would silently lose the other's
+# changes. Every path below that cannot prove this is the only copy exits.
+APP_TITLE = "Simple SFTP Server"
+MUTEX_NAME = "JDE_SimpleSFTPServer_SingleInstance"
+ERROR_ALREADY_EXISTS = 183
+MB_ICONERROR = 0x10
+MB_ICONINFORMATION = 0x40
+
 _mutex_handle = None   # module-level: must live for the process lifetime
 
-def _acquire_single_instance(mutex_name: str) -> bool:
-    # Name convention: "JDE_Simple{Thing}Tool_SingleInstance"
-    # Session-local (no "Global\" prefix): each Windows session (e.g. RDP,
-    # fast user switching) gets its own instance instead of colliding across users.
-    global _mutex_handle
-    try:
-        # use_last_error=True: ctypes.windll's GetLastError() can be clobbered
-        # by ctypes-internal calls, so read the error via ctypes.get_last_error() instead.
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        _mutex_handle = kernel32.CreateMutexW(None, False, mutex_name)
-        return ctypes.get_last_error() != 183   # ERROR_ALREADY_EXISTS
-    except Exception:
-        return True   # fail open: never block launch over a mutex error
 
-def _prompt_second_instance(app_title: str) -> bool:
-    # Native message box only: runs before pywebview/Qt exists, so no Qt dialog is available yet.
+def _acquire_single_instance(mutex_name: str) -> bool:
+    """True if this is the only copy, False if another copy holds the lock.
+    Raises OSError if Windows cannot create the lock at all.
+
+    Session-local (no "Global\\" prefix): each Windows session (e.g. RDP,
+    fast user switching) gets its own copy instead of colliding across users.
+    """
+    global _mutex_handle
+    # use_last_error=True: ctypes.windll's GetLastError() can be clobbered
+    # by ctypes-internal calls, so read the error via ctypes.get_last_error().
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    handle = kernel32.CreateMutexW(None, False, mutex_name)
+    error = ctypes.get_last_error()
+    if not handle:
+        raise ctypes.WinError(error)
+    _mutex_handle = handle
+    return error != ERROR_ALREADY_EXISTS
+
+
+def _is_app_window_class(class_name: str) -> bool:
+    # The Qt window's class is "Qt<version>QWindowIcon", e.g. Qt6112QWindowIcon.
+    # Checking it stops a File Explorer window for a folder with the same name
+    # from being taken for the app.
+    return class_name.startswith("Qt") and class_name.endswith("QWindowIcon")
+
+
+def _focus_existing_window(app_title: str) -> bool:
+    """Bring the running copy's window to the front. True if it was found."""
     try:
-        text = f"{app_title} is already running.\n\nOpen a second instance?"
-        MB_YESNO_ICONQUESTION = 0x00000024
-        result = ctypes.windll.user32.MessageBoxW(None, text, app_title, MB_YESNO_ICONQUESTION)
-        return result == 6   # IDYES
+        user32 = ctypes.windll.user32
+        found = {"hwnd": None}
+        enum_proc_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        def _enum_proc(hwnd, lparam):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length == 0:
+                return True
+            title = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, title, length + 1)
+            # Exact match only: a prefix match could hit an unrelated window.
+            if title.value != app_title:
+                return True
+            cls = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, cls, 256)
+            if not _is_app_window_class(cls.value):
+                return True
+            found["hwnd"] = hwnd
+            return False   # stop enumerating, match found
+
+        user32.EnumWindows(enum_proc_type(_enum_proc), 0)
+        hwnd = found["hwnd"]
+        if not hwnd:
+            return False
+        SW_RESTORE = 9
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, SW_RESTORE)
+        user32.SetForegroundWindow(hwnd)
+        return True
     except Exception:
-        return True   # fail open: if the box can't be shown, launch proceeds
+        return False
+
+
+def _show_message(app_title: str, text: str, icon: int) -> None:
+    # Native message box only: runs before pywebview/Qt exists. If even this
+    # fails there is nowhere left to report it; the caller still exits.
+    try:
+        ctypes.windll.user32.MessageBoxW(None, text, app_title, icon)
+    except Exception:
+        pass
+
+
+def ensure_single_instance(app_title: str = APP_TITLE, mutex_name: str = MUTEX_NAME) -> None:
+    """Return only if this is the only running copy; otherwise exit."""
+    try:
+        first = _acquire_single_instance(mutex_name)
+    except Exception as e:
+        _show_message(
+            app_title,
+            f"{app_title} could not check whether it is already running, so it "
+            f"will not start.\n\nTry opening it again. If this keeps happening, "
+            f"restart Windows.\n\nDetails: {e}",
+            MB_ICONERROR)
+        sys.exit(1)
+    if first:
+        return
+    if not _focus_existing_window(app_title):
+        # The window can be missing for a moment while the other copy starts.
+        _show_message(app_title, f"{app_title} is already running.", MB_ICONINFORMATION)
+    sys.exit(0)
 
 
 def main():
@@ -123,9 +203,7 @@ def main():
         truststore.inject_into_ssl()
     except Exception:
         pass
-    if not _acquire_single_instance("JDE_SimpleSFTPServer_SingleInstance"):
-        if not _prompt_second_instance("Simple SFTP Server"):
-            sys.exit(0)
+    ensure_single_instance()
     import webview
     if sys.platform == "win32":
         try:
@@ -138,7 +216,7 @@ def main():
     debug.prune()
     geo = _restore_geometry()
     window = webview.create_window(
-        "Simple SFTP Server", url=resource_path("simple_sftp_server-UI.html"),
+        APP_TITLE, url=resource_path("simple_sftp_server-UI.html"),
         js_api=api, width=1180, height=820, min_size=(980, 680),
         background_color="#0a0e14")
     api._set_window(window)
