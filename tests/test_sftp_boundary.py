@@ -12,10 +12,10 @@ import time
 
 import paramiko
 import pytest
-from paramiko.sftp import CMD_FSETSTAT, CMD_SETSTAT
+from paramiko.sftp import CMD_DATA, CMD_FSETSTAT, CMD_READ, CMD_SETSTAT, int64
 
 import app.server as server_module
-from app.constants import LOCKOUT_THRESHOLD
+from app.constants import LOCKOUT_THRESHOLD, MAX_READ_LENGTH
 from app.server import DEFAULT_PERMISSIONS
 from tests.sftp_helpers import authorized_key_line, make_user, sftp_key, sftp_password
 
@@ -336,6 +336,84 @@ def test_upload_then_download_roundtrip_updates_byte_count(tmp_path, sftp_server
         sessions = list(handle.service._sessions.values())
         assert len(sessions) == 1
         assert sessions[0]["bytes"] >= len(payload)
+    finally:
+        _close(client, sftp)
+
+
+# ───────────── read request size ─────────────
+
+class _RecordingFile:
+    """Stands in for an open file and records every length asked of read()."""
+
+    def __init__(self, content):
+        self._content = content
+        self._pos = 0
+        self.read_lengths = []
+
+    def seek(self, offset):
+        self._pos = offset
+
+    def read(self, length):
+        self.read_lengths.append(length)
+        data = self._content[self._pos:self._pos + length]
+        self._pos += len(data)
+        return data
+
+
+class _QuietIface:
+    def _progress(self, handle):
+        pass
+
+
+def _read_handle(content):
+    h = server_module.JailedHandle(0, _QuietIface(), "f.bin", "down", len(content))
+    h.readfile = _RecordingFile(content)
+    return h
+
+
+def test_oversized_read_length_never_reaches_the_file():
+    content = bytes(range(256)) * 512  # 128 KiB
+    h = _read_handle(content)
+
+    data = h.read(0, 0xFFFFFFFF)
+
+    assert h.readfile.read_lengths == [MAX_READ_LENGTH]
+    assert data == content[:MAX_READ_LENGTH]
+
+
+def test_normal_read_length_is_passed_through():
+    content = bytes(range(256)) * 512
+    h = _read_handle(content)
+
+    data = h.read(100, 4096)
+
+    assert h.readfile.read_lengths == [4096]
+    assert data == content[100:4196]
+
+
+def test_oversized_read_request_gets_short_reply_over_sftp(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    content = os.urandom(MAX_READ_LENGTH * 3)
+    (home / "big.bin").write_bytes(content)
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        with sftp.open("big.bin", "rb") as f:
+            # Send the raw request, since Paramiko's own client never asks
+            # for more than 32 KiB at once.
+            t, msg = sftp._request(CMD_READ, f.handle, int64(0), 0xFFFFFFFF)
+            assert t == CMD_DATA
+            assert msg.get_string() == content[:MAX_READ_LENGTH]
+            t, msg = sftp._request(CMD_READ, f.handle, int64(MAX_READ_LENGTH), 0xFFFFFFFF)
+            assert t == CMD_DATA
+            assert msg.get_string() == content[MAX_READ_LENGTH:MAX_READ_LENGTH * 2]
+        # A normal whole-file download still arrives intact.
+        dst = tmp_path / "dst.bin"
+        sftp.get("big.bin", str(dst))
+        assert dst.read_bytes() == content
     finally:
         _close(client, sftp)
 
