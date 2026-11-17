@@ -223,6 +223,77 @@ def test_overwrite_denied_without_delete_permission(tmp_path, sftp_server):
         _close(client, sftp)
 
 
+def test_concurrent_upload_cannot_overwrite_without_delete_permission(
+        tmp_path, sftp_server, monkeypatch):
+    # Another connection's upload creates the file in the gap between this
+    # upload's checks and its open. That upload must be refused, and the
+    # other connection's file must survive untouched.
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "race.txt"
+    src = tmp_path / "src.txt"
+    src.write_bytes(b"second upload")
+    user = make_user("bob", home, _perms(delete=False), password="pw")
+    handle = sftp_server([user])
+
+    real_open = os.open
+    fired = []
+
+    def open_after_other_upload(path, flags, *args, **kwargs):
+        if not fired and os.path.basename(str(path)) == "race.txt":
+            fired.append(True)
+            target.write_bytes(b"first upload")
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(server_module.os, "open", open_after_other_upload)
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        with pytest.raises(PermissionError):
+            sftp.put(str(src), "race.txt")
+        assert fired
+        assert target.read_bytes() == b"first upload"
+    finally:
+        _close(client, sftp)
+
+
+def test_new_upload_allowed_without_delete_permission(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    src = tmp_path / "src.txt"
+    src.write_bytes(b"new file")
+    user = make_user("bob", home, _perms(delete=False), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        sftp.put(str(src), "new.txt")
+        assert (home / "new.txt").read_bytes() == b"new file"
+    finally:
+        _close(client, sftp)
+
+
+def test_write_without_create_refused_without_delete_permission(tmp_path, sftp_server):
+    # "r+" asks to write without creating, so it can only reach an existing
+    # file: refused for an existing one, missing for an absent one.
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "existing.txt").write_bytes(b"original")
+    user = make_user("bob", home, _perms(delete=False), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        with pytest.raises(PermissionError):
+            sftp.open("existing.txt", "r+")
+        with pytest.raises(FileNotFoundError):
+            sftp.open("absent.txt", "r+")
+        assert (home / "existing.txt").read_bytes() == b"original"
+        assert not (home / "absent.txt").exists()
+    finally:
+        _close(client, sftp)
+
+
 def test_overwrite_allowed_with_delete_permission(tmp_path, sftp_server):
     home = tmp_path / "home"
     home.mkdir()

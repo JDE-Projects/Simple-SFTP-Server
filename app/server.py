@@ -419,13 +419,25 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             return paramiko.SFTP_PERMISSION_DENIED
         if reading and not self.perm["download"]:
             return paramiko.SFTP_PERMISSION_DENIED
-        # overwrite check: blocked unless user can delete files
-        exists = os.path.exists(real)
-        if writing and exists and not self.perm["delete"]:
-            return paramiko.SFTP_PERMISSION_DENIED
+        # A user who cannot delete files cannot overwrite them either. Checking
+        # first and opening later would let two uploads both see no file and
+        # the second wipe out the first, so the file is instead created only
+        # if it does not exist, in one step.
+        no_overwrite = writing and not self.perm["delete"]
+        if no_overwrite:
+            if not flags & os.O_CREAT:
+                # Without create, the open could only reach an existing file.
+                if os.path.exists(real):
+                    return paramiko.SFTP_PERMISSION_DENIED
+                return paramiko.SFTP_NO_SUCH_FILE
+            flags |= os.O_EXCL
         try:
             mode = getattr(attr, "st_mode", None) or 0o644
             fd = os.open(real, flags, mode)
+        except FileExistsError as e:
+            if no_overwrite:
+                return paramiko.SFTP_PERMISSION_DENIED
+            return paramiko.SFTPServer.convert_errno(e.errno)
         except OSError as e:
             return paramiko.SFTPServer.convert_errno(e.errno)
         if flags & os.O_WRONLY:
