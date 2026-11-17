@@ -32,7 +32,7 @@ If you enjoyed this project and would like to buy me a coffee, check out my [Ko-
   folder, reading file details, transferring), running request counts and bytes
   moved, in-flight transfers, a recent-activity feed, and locked-out IPs with
   one-click Unlock.
-- Brute-force lockout: repeated failed logins block that account for fifteen
+- Brute-force lockout: repeated wrong passwords block that account for fifteen
   minutes, with an address-level backstop against password spraying and a
   manual override.
 - Concurrent connections are capped, per address and overall, so a flood of
@@ -184,9 +184,14 @@ separately from Windows Defender Firewall.
 - Generated passwords use a cryptographic random source: 20 characters, no
   look-alikes, with letters, digits, and symbols guaranteed.
 - Each user is jailed to their folder; paths that try to escape it are refused.
-- Failed logins are rate-limited per account (five strikes, fifteen-minute
+- Wrong passwords are rate-limited per account (five strikes, fifteen-minute
   lockout), with a wider address-level backstop against spraying across
-  usernames, plus a manual unlock.
+  usernames, plus a manual unlock. Rejected keys don't count as strikes:
+  SFTP apps try every key they hold before asking for a password, and a key
+  can't be guessed.
+- Every username is offered the same sign-in choices (key or password), so
+  the server's replies don't reveal which accounts exist or how they sign in.
+  Each account still only accepts the method it is set to.
 - Only modern, secure key-exchange, ciphers, and MACs are offered; known-weak
   algorithms are disabled. There is no "compatibility" downgrade.
 - The host key persists next to the app so its fingerprint is stable; treat

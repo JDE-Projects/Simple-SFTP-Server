@@ -587,14 +587,10 @@ class ServerIface(paramiko.ServerInterface):
         self._sftp_started = False
 
     def get_allowed_auths(self, username):
-        u = self.service.find_user(username)
-        methods = []
-        if u:
-            if u.get("auth") in ("password", "both") and u.get("password_hash"):
-                methods.append("password")
-            if u.get("auth") in ("key", "both") and u.get("authorized_keys"):
-                methods.append("publickey")
-        return ",".join(methods) if methods else "publickey,password"
+        # The same list for every name, real or not, so the reply cannot be
+        # used to find valid usernames or learn how each account signs in.
+        # The check_auth_* methods still enforce each account's real setting.
+        return "publickey,password"
 
     def check_auth_password(self, username, password):
         if self.service.lockout.is_locked(self.ip, username):
@@ -627,7 +623,11 @@ class ServerIface(paramiko.ServerInterface):
                 if len(parts) >= 2 and parts[1] == offered:
                     self._win(username, u)
                     return paramiko.AUTH_SUCCESSFUL
-        self.service.lockout.record_fail(self.ip, username)
+        # A rejected key is not counted toward lockout. Every account offers
+        # key sign-in, so clients try each key they hold before asking for a
+        # password, and counting those would lock out password users who did
+        # nothing wrong. Keys cannot be guessed, and the connection limits
+        # still bound how many attempts one address can make.
         debug._log("auth fail (key)", {"ip": self.ip})
         return paramiko.AUTH_FAILED
 

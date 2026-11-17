@@ -117,6 +117,63 @@ def test_key_only_user_rejects_password_auth(tmp_path, sftp_server):
         sftp_password(handle.port, "alice", "some password")
 
 
+def test_password_only_user_rejects_key_auth(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    client_key = paramiko.RSAKey.generate(2048)
+    user = make_user("bob", home, _perms(), password="correct horse battery staple")
+    # A key on file must still be refused while the account is password-only.
+    user["authorized_keys"] = [authorized_key_line(client_key)]
+    handle = sftp_server([user])
+
+    with pytest.raises(paramiko.AuthenticationException):
+        sftp_key(handle.port, "bob", client_key)
+
+
+# ───────────── advertised sign-in methods ─────────────
+
+class _AuthService:
+    def __init__(self, users):
+        self.lockout = server_module.Lockout()
+        self._users = {u["username"]: u for u in users}
+
+    def find_user(self, username):
+        return self._users.get(username)
+
+
+def test_every_username_is_offered_the_same_sign_in_methods(tmp_path):
+    key_line = authorized_key_line(paramiko.RSAKey.generate(2048))
+    users = [
+        make_user("pw", tmp_path, _perms(), auth="password", password="pw-secret"),
+        make_user("key", tmp_path, _perms(), auth="key", authorized_keys=[key_line]),
+        make_user("either", tmp_path, _perms(), auth="both", password="pw-secret",
+                  authorized_keys=[key_line]),
+    ]
+    iface = server_module.ServerIface(_AuthService(users), "127.0.0.1", 1)
+
+    offered = {name: iface.get_allowed_auths(name)
+               for name in ("pw", "key", "either", "no-such-user")}
+
+    assert set(offered.values()) == {"publickey,password"}
+
+
+def test_rejected_keys_do_not_lock_out_password_user(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    password = "correct horse battery staple"
+    user = make_user("bob", home, _perms(), password=password)
+    handle = sftp_server([user])
+    stray_key = paramiko.RSAKey.generate(2048)
+
+    # A client holding several keys offers each one before the password.
+    for _ in range(LOCKOUT_THRESHOLD + 1):
+        with pytest.raises(paramiko.AuthenticationException):
+            sftp_key(handle.port, "bob", stray_key)
+
+    client, sftp = sftp_password(handle.port, "bob", password)
+    _close(client, sftp)
+
+
 # ───────────── jail ─────────────
 
 def test_jail_blocks_traversal_and_absolute_paths(tmp_path, sftp_server):
