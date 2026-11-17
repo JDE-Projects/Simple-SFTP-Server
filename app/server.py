@@ -564,6 +564,11 @@ class ServerIface(paramiko.ServerInterface):
         self.sid = sid
         self.username = None
         self.user = None
+        # One ServerIface exists per SSH connection, so these flags cap each
+        # connection at one session channel and one SFTP subsystem.
+        self._channel_lock = threading.Lock()
+        self._session_granted = False
+        self._sftp_started = False
 
     def get_allowed_auths(self, username):
         u = self.service.find_user(username)
@@ -616,13 +621,32 @@ class ServerIface(paramiko.ServerInterface):
         self.service.lockout.clear(self.ip, username)
 
     def check_channel_request(self, kind, chanid):
-        if kind == "session":
-            return paramiko.OPEN_SUCCEEDED
-        return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+        # The connection limits count TCP connections, not channels. Without
+        # this cap, one signed-in client could open any number of channels on
+        # a single connection, each running its own SFTP thread. A client
+        # that wants more sessions must open more connections, which the
+        # limits do count. The slot is never handed back: closing the channel
+        # means reconnecting.
+        if kind != "session":
+            return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+        with self._channel_lock:
+            if self._session_granted:
+                debug._log("extra channel refused", {"ip": self.ip})
+                return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+            self._session_granted = True
+        return paramiko.OPEN_SUCCEEDED
 
     def check_channel_subsystem_request(self, channel, name):
-        ok = (name == "sftp")
-        return paramiko.ServerInterface.check_channel_subsystem_request(self, channel, name) if ok else False
+        if name != "sftp":
+            return False
+        # Each accepted subsystem request starts a new SFTP thread, even on a
+        # channel that already runs one, so allow it once per connection.
+        with self._channel_lock:
+            if self._sftp_started:
+                debug._log("extra sftp subsystem refused", {"ip": self.ip})
+                return False
+            self._sftp_started = True
+        return paramiko.ServerInterface.check_channel_subsystem_request(self, channel, name)
 
     def check_channel_pty_request(self, *a, **k):
         return False
