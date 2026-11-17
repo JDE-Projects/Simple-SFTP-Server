@@ -1,10 +1,10 @@
-"""Task 1 regression: the live-view update path must not scale with file count.
+"""The live-view update path must not scale with file count.
 
 Starts the real SFTPService on an ephemeral loopback port, connects a real
 Paramiko client, transfers a large synthetic set of small files, and asserts the
 number of UI pushes stays bounded by elapsed time (the coalescing pump rate),
-not by the number of files moved. Before the fix each file fired 2-4 synchronous
-cross-layer pushes, which took a production server down.
+not by the number of files moved. Firing 2-4 synchronous cross-layer pushes per
+file is enough to take a busy server down.
 """
 
 import io
