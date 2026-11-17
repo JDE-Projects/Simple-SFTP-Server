@@ -186,6 +186,7 @@ def test_overwrite_second_replace_failure_restores_existing_pair(tmp_path, monke
     result = generate_keypair("Ed25519", str(private_path), "", "fixture-user", True)
 
     assert result["ok"] is False
+    assert "restore_failed" not in result
     assert private_path.read_bytes() == old_private
     assert pub_path.read_bytes() == old_public
     _assert_no_keygen_staging_files(tmp_path)
@@ -238,6 +239,7 @@ def test_failed_restore_names_private_key_backup(tmp_path, monkeypatch):
                   if p.read_bytes() == old_private)
     assert "couldn't be put back" in result["error"]
     assert str(backup) in result["error"]
+    assert result["restore_failed"] is True
 
 
 def test_failed_restore_permission_error_names_backup(tmp_path, monkeypatch):
@@ -290,6 +292,7 @@ def test_failed_cleanup_without_old_key_names_leftover(tmp_path, monkeypatch):
     assert private_path.exists()
     assert str(private_path) in result["error"]
     assert "without its public key" in result["error"]
+    assert result["restore_failed"] is True
 
 
 def test_private_key_move_failure_without_old_key_is_plain_failure(tmp_path, monkeypatch):

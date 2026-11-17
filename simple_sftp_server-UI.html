@@ -395,6 +395,13 @@
   </div>
 </div></div>
 
+<!-- info modal: a message that stays until OK, with selectable text -->
+<div id="infoModal" class="modal"><div class="card" style="width:480px" role="alertdialog" aria-modal="true" aria-labelledby="infoTitle" aria-describedby="infoText">
+  <h3 id="infoTitle"></h3>
+  <p id="infoText" style="font-size:12.5px;line-height:1.5;color:var(--text);white-space:pre-line;overflow-wrap:anywhere;-webkit-user-select:text;user-select:text;cursor:text;margin:0 0 16px"></p>
+  <div class="modal-actions"><button id="infoOk" class="btn-primary">OK</button></div>
+</div></div>
+
 <!-- update-check failure modal -->
 <div id="updateErrModal" class="modal"><div class="card" style="width:480px" role="dialog" aria-modal="true" aria-labelledby="updateErrTitle">
   <h3 id="updateErrTitle">Couldn't check for updates</h3>
@@ -652,6 +659,13 @@ function showSimpleConfirm(title, text, onOk){
   openModal("confirmModal",{focus:"cfCancel"});
   $("cfCancel").onclick=()=>closeModal("confirmModal");
   $("cfOk").onclick=()=>{closeModal("confirmModal");onOk();};
+}
+
+function showInfo(title, text){
+  $("infoTitle").textContent=title;
+  $("infoText").textContent=text;
+  openModal("infoModal",{focus:"infoOk"});
+  $("infoOk").onclick=()=>closeModal("infoModal");
 }
 
 function showConfirmStop(title, text, folderPath, folderPreexisting, onDecide){
@@ -980,13 +994,21 @@ async function onKeygen(){
         $("kgGo").disabled=true;
         const r2=await API.generate_keypair($("kgType").value,path,$("kgPass").value,$("umUser").value.trim(),true);
         $("kgGo").disabled=false;
-        if(!r2.ok){toast(r2.error||"Key generation failed.",true);return;}
+        if(!r2.ok){
+          if(r2.restore_failed) showInfo("Key not replaced",r2.error);
+          else toast(r2.error||"Key generation failed.",true);
+          return;
+        }
         keygenSuccess(r2);
       });
     return;
   }
   $("kgGo").disabled=false;
-  if(!r.ok){toast(r.error||"Key generation failed.",true);return;}
+  if(!r.ok){
+    if(r.restore_failed) showInfo("Key not created",r.error);
+    else toast(r.error||"Key generation failed.",true);
+    return;
+  }
   keygenSuccess(r);
 }
 
