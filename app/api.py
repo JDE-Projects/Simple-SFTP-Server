@@ -1,5 +1,3 @@
-import base64
-import binascii
 import json
 import os
 import shutil
@@ -7,8 +5,6 @@ import threading
 import urllib.parse
 import webbrowser
 from datetime import datetime, timezone
-
-import paramiko
 
 from app import paths
 from app.atomic import atomic_write_json
@@ -21,26 +17,10 @@ from app.services.keygen import generate_keypair as _generate_keypair
 from app.services.network import lan_ip, port_is_free, public_ip, valid_port
 from app.services.passwords import generate_password, hash_password
 from app.services.prefs import load_prefs, save_prefs
+from app.services.pubkeys import describe_key, read_key_file, read_one_key
 from app.services.safety import blocked_reason
 from app.services.updates import check_update as _check_update
 from app.services.usernames import validate_username
-
-
-def _valid_authorized_key(line):
-    # A line is only accepted if its second field actually decodes as
-    # base64 and loads as a real public key of the type it claims to be.
-    parts = line.split()
-    if len(parts) < 2:
-        return False
-    try:
-        blob = base64.b64decode(parts[1], validate=True)
-    except (binascii.Error, ValueError):
-        return False
-    try:
-        key = paramiko.PKey.from_type_string(parts[0], blob)
-        return key.get_base64() == parts[1]
-    except Exception:
-        return False
 
 
 def _is_allowed_url(url):
@@ -173,11 +153,12 @@ class Api:
     def _public_users(self, cfg):
         out = []
         for u in cfg.get("users", []):
+            keys = u.get("authorized_keys", [])
             out.append({"username": u.get("username"), "home": u.get("home"),
                         "permissions": perms_for(u),
                         "auth": u.get("auth", "password"),
                         "has_password": bool(u.get("password_hash")),
-                        "key_count": len(u.get("authorized_keys", [])),
+                        "key": describe_key(keys[0]) if keys else None,
                         "managed_folder": bool(u.get("managed_folder"))})
         return out
 
@@ -201,6 +182,25 @@ class Api:
             if res:
                 return {"ok": True, "path": res[0] if isinstance(res, (list, tuple)) else res}
             return {"ok": False}
+        except Exception as e:
+            return {"ok": False, "error": friendly_error(e)}
+
+    def pick_key_file(self):
+        try:
+            import webview
+            try:
+                dlg = webview.FileDialog.OPEN
+            except AttributeError:  # older pywebview
+                dlg = webview.OPEN_DIALOG
+            res = self._window.create_file_dialog(
+                dlg, file_types=("Public key files (*.pub)", "All files (*.*)"))
+            if not res:
+                return {"ok": False}
+            path = res[0] if isinstance(res, (list, tuple)) else res
+            line, error = read_key_file(path)
+            if error:
+                return {"ok": False, "error": error}
+            return {"ok": True, "key": line, "described": describe_key(line)}
         except Exception as e:
             return {"ok": False, "error": friendly_error(e)}
 
@@ -306,18 +306,16 @@ class Api:
             else:
                 rec.pop("password_hash", None)
             if auth in ("key", "both"):
-                keys = p.get("authorized_keys") or []
-                stripped = [k for k in ((k or "").strip() for k in keys) if k]
-                for position, key in enumerate(stripped, start=1):
-                    if not _valid_authorized_key(key):
-                        preview = key[:20] + ("..." if len(key) > 20 else "")
-                        return {"ok": False, "error":
-                                f'Key {position} is not a valid public key (starts with "{preview}"). '
-                                "Paste the full contents of a .pub file (for example ssh-ed25519 AAAA... comment)."}
-                if not stripped and not rec.get("authorized_keys"):
+                public_key = p.get("public_key")
+                if not isinstance(public_key, str):
+                    public_key = ""
+                if not public_key.strip() and not rec.get("authorized_keys"):
                     return {"ok": False, "error": "Add at least one public key (or switch to password auth)."}
-                if stripped:
-                    rec["authorized_keys"] = stripped
+                if public_key.strip():
+                    line, error = read_one_key(public_key)
+                    if error:
+                        return {"ok": False, "error": error}
+                    rec["authorized_keys"] = [line]
             else:
                 rec.pop("authorized_keys", None)
             if existing is None:
@@ -366,6 +364,12 @@ class Api:
 
     def generate_keypair(self, key_type, out_path, passphrase, username, overwrite=False):
         return _generate_keypair(key_type, out_path, passphrase, username, overwrite)
+
+    def check_public_key(self, text):
+        line, error = read_one_key(text)
+        if error:
+            return {"ok": False, "error": error}
+        return {"ok": True, "key": line, "described": describe_key(line)}
 
     def browse_save_key(self, suggested):
         try:

@@ -13,10 +13,11 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import load_ssh_private_key
 
 from app import paths
-from app.api import Api, _valid_authorized_key
+from app.api import Api
 from app.constants import DEFAULT_PORT
 from app.server import DEFAULT_PERMISSIONS
 from app.services.keygen import generate_keypair
+from app.services.pubkeys import is_valid_key
 from simple_sftp_server import APP_VERSION
 from tests.sftp_helpers import make_user
 
@@ -335,7 +336,7 @@ def test_save_user_rejects_malformed_authorized_key(tmp_path, monkeypatch):
 
     r = api.save_user({
         "username": "alice", "home": str(home), "permissions": _perms(),
-        "auth": "key", "authorized_keys": ["ssh-rsa not-real-base64!!!"],
+        "auth": "key", "public_key": "ssh-rsa not-real-base64!!!",
     })
     assert r["ok"] is False
 
@@ -343,23 +344,20 @@ def test_save_user_rejects_malformed_authorized_key(tmp_path, monkeypatch):
     assert cfg.get("users", []) == []
 
 
-def test_save_user_rejects_mixed_valid_and_invalid_keys(tmp_path, monkeypatch):
+def test_save_user_refuses_several_keys(tmp_path, monkeypatch):
     api = _api(tmp_path, monkeypatch)
     home = tmp_path / "alice"
     home.mkdir()
     valid = api.generate_keypair("Ed25519", str(tmp_path / "id_ed25519"), "", "alice")
     assert valid["ok"] is True
-    invalid = "ssh-ed25519 mangled-public-key"
-
     result = api.save_user({
         "username": "alice", "home": str(home), "permissions": _perms(),
-        "auth": "key", "authorized_keys": [valid["public"], invalid],
+        "auth": "key", "public_key": valid["public"] + "\n" + valid["public"],
     })
 
     assert result == {
         "ok": False,
-        "error": ('Key 2 is not a valid public key (starts with "ssh-ed25519 mangled-..."). '
-                  "Paste the full contents of a .pub file (for example ssh-ed25519 AAAA... comment)."),
+        "error": "This holds more than one key. This app uses one key per user.",
     }
     assert api._load_config().get("users", []) == []
 
@@ -372,22 +370,22 @@ def test_save_user_rejects_invalid_key_without_changing_existing_keys(tmp_path, 
     second = api.generate_keypair("Ed25519", str(tmp_path / "id_ed25519_2"), "", "alice")
     assert first["ok"] is True
     assert second["ok"] is True
-    original_keys = [first["public"], second["public"]]
+    original_keys = [first["public"]]
     assert api.save_user({
         "username": "alice", "home": str(home), "permissions": _perms(),
-        "auth": "key", "authorized_keys": original_keys,
+        "auth": "key", "public_key": first["public"],
     })["ok"] is True
 
     result = api.save_user({
         "username": "alice", "home": str(home), "permissions": _perms(),
-        "auth": "key", "authorized_keys": original_keys + ["not-a-public-key"],
+        "auth": "key", "public_key": "not-a-public-key",
     })
 
     assert result["ok"] is False
     assert api._load_config()["users"][0]["authorized_keys"] == original_keys
 
 
-def test_save_user_accepts_all_valid_public_keys(tmp_path, monkeypatch):
+def test_save_user_replaces_stored_key(tmp_path, monkeypatch):
     api = _api(tmp_path, monkeypatch)
     home = tmp_path / "alice"
     home.mkdir()
@@ -395,15 +393,17 @@ def test_save_user_accepts_all_valid_public_keys(tmp_path, monkeypatch):
     second = api.generate_keypair("Ed25519", str(tmp_path / "id_ed25519_2"), "", "alice")
     assert first["ok"] is True
     assert second["ok"] is True
-    keys = [first["public"], second["public"]]
-
+    assert api.save_user({
+        "username": "alice", "home": str(home), "permissions": _perms(),
+        "auth": "key", "public_key": first["public"],
+    })["ok"] is True
     result = api.save_user({
         "username": "alice", "home": str(home), "permissions": _perms(),
-        "auth": "key", "authorized_keys": keys,
-    })
+        "auth": "key", "public_key": second["public"],
+    }, original="alice")
 
     assert result["ok"] is True
-    assert api._load_config()["users"][0]["authorized_keys"] == keys
+    assert api._load_config()["users"][0]["authorized_keys"] == [second["public"]]
 
 
 def test_save_user_accepts_generated_public_key(tmp_path, monkeypatch):
@@ -416,7 +416,7 @@ def test_save_user_accepts_generated_public_key(tmp_path, monkeypatch):
 
     r = api.save_user({
         "username": "alice", "home": str(home), "permissions": _perms(),
-        "auth": "key", "authorized_keys": [keygen_result["public"]],
+        "auth": "key", "public_key": keygen_result["public"],
     })
     assert r["ok"] is True
 
@@ -425,11 +425,11 @@ def test_save_user_accepts_generated_public_key(tmp_path, monkeypatch):
     assert saved["authorized_keys"] == [keygen_result["public"]]
 
 
-def test_valid_authorized_key_helper(tmp_path):
+def test_is_valid_key(tmp_path):
     result = generate_keypair("Ed25519", str(tmp_path / "id_ed25519"), "", "someone")
-    assert _valid_authorized_key(result["public"]) is True
-    assert _valid_authorized_key("ssh-ed25519 not-real-base64!!!") is False
-    assert _valid_authorized_key("just-one-field") is False
+    assert is_valid_key(result["public"]) is True
+    assert is_valid_key("ssh-ed25519 not-real-base64!!!") is False
+    assert is_valid_key("just-one-field") is False
 
 
 def test_login_match_accepts_matching_key_rejects_other(tmp_path, sftp_server):

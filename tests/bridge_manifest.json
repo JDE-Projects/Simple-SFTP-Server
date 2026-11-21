@@ -2,6 +2,9 @@
   "browse_save_key": [
     "suggested"
   ],
+  "check_public_key": [
+    "text"
+  ],
   "check_port": [
     "port"
   ],
@@ -30,6 +33,7 @@
     "url"
   ],
   "pick_folder": [],
+  "pick_key_file": [],
   "quick_start": [],
   "reveal_folder": [
     "path"
