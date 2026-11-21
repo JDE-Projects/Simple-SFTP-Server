@@ -1,5 +1,6 @@
 import os
 import socket
+import stat
 import threading
 import time
 from contextlib import suppress
@@ -508,6 +509,35 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             os.rename(o, n)
             self._move_upload_records(o, n)
             return paramiko.SFTP_OK
+        except FileExistsError:
+            return paramiko.SFTP_FAILURE
+        except OSError as e:
+            return paramiko.SFTPServer.convert_errno(e.errno)
+
+    def posix_rename(self, oldpath, newpath):
+        if self.service:
+            self.service.note_op(self.sid, "renaming", oldpath)
+        o = self._real(oldpath)
+        n = self._real(newpath)
+        if o is None or n is None:
+            return paramiko.SFTP_PERMISSION_DENIED
+        is_dir = os.path.isdir(o)
+        if is_dir and not self.perm["rename_dir"]:
+            return paramiko.SFTP_PERMISSION_DENIED
+        if not is_dir and not self.perm["rename_file"]:
+            return paramiko.SFTP_PERMISSION_DENIED
+        try:
+            if self.perm["delete"]:
+                os.replace(o, n)
+            else:
+                # On Windows, os.rename refuses an existing target in one step,
+                # so a file cannot slip in between a check and the move. Other
+                # systems would overwrite it.
+                os.rename(o, n)
+            self._move_upload_records(o, n)
+            return paramiko.SFTP_OK
+        except FileExistsError:
+            return paramiko.SFTP_PERMISSION_DENIED
         except OSError as e:
             return paramiko.SFTPServer.convert_errno(e.errno)
 
@@ -533,6 +563,16 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             return paramiko.SFTP_PERMISSION_DENIED
         if real not in self._uploaded_paths or not os.path.isfile(real):
             return paramiko.SFTP_PERMISSION_DENIED
+        # Simple SFTP Client v1.9.6 sends its permission step before replacing
+        # a file even when nothing differs, so a request matching the file's
+        # current permissions succeeds without changing anything.
+        if attr._flags == paramiko.SFTPAttributes.FLAG_PERMISSIONS:
+            try:
+                if stat.S_IMODE(attr.st_mode) == stat.S_IMODE(os.stat(real).st_mode):
+                    return paramiko.SFTP_OK
+            except OSError as e:
+                return paramiko.SFTPServer.convert_errno(e.errno)
+            return paramiko.SFTP_OP_UNSUPPORTED
         if attr._flags != paramiko.SFTPAttributes.FLAG_AMTIME:
             return paramiko.SFTP_OP_UNSUPPORTED
         try:

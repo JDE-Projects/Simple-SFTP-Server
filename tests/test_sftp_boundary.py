@@ -8,6 +8,7 @@ that is reserved for other test files.
 """
 
 import os
+import stat
 import time
 
 import paramiko
@@ -536,6 +537,164 @@ def test_rmdir_denied_without_delete_dir_permission(tmp_path, sftp_server):
         _close(client, sftp)
 
 
+def test_posix_rename_to_new_name(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "a.txt").write_bytes(b"data")
+    user = make_user("bob", home, _perms(delete=False), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        sftp.posix_rename("a.txt", "b.txt")
+        assert (home / "b.txt").read_bytes() == b"data"
+        assert not (home / "a.txt").exists()
+    finally:
+        _close(client, sftp)
+
+
+def test_posix_rename_replaces_file_with_delete_permission(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "a.txt").write_bytes(b"new")
+    (home / "b.txt").write_bytes(b"old")
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        sftp.posix_rename("a.txt", "b.txt")
+        assert (home / "b.txt").read_bytes() == b"new"
+        assert not (home / "a.txt").exists()
+    finally:
+        _close(client, sftp)
+
+
+def test_posix_rename_refuses_existing_target_without_delete_permission(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "a.txt").write_bytes(b"new")
+    (home / "b.txt").write_bytes(b"old")
+    user = make_user("bob", home, _perms(delete=False), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        with pytest.raises((IOError, PermissionError)):
+            sftp.posix_rename("a.txt", "b.txt")
+        assert (home / "a.txt").read_bytes() == b"new"
+        assert (home / "b.txt").read_bytes() == b"old"
+    finally:
+        _close(client, sftp)
+
+
+def test_posix_rename_denied_without_rename_file_permission(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "a.txt").write_bytes(b"data")
+    user = make_user("bob", home, _perms(rename_file=False), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        with pytest.raises((IOError, PermissionError)):
+            sftp.posix_rename("a.txt", "b.txt")
+        assert (home / "a.txt").read_bytes() == b"data"
+        assert not (home / "b.txt").exists()
+    finally:
+        _close(client, sftp)
+
+
+def test_posix_rename_dir_denied_without_rename_dir_permission(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "adir").mkdir()
+    user = make_user("bob", home, _perms(rename_dir=False), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        with pytest.raises((IOError, PermissionError)):
+            sftp.posix_rename("adir", "bdir")
+        assert (home / "adir").is_dir()
+        assert not (home / "bdir").exists()
+    finally:
+        _close(client, sftp)
+
+
+@pytest.mark.parametrize("outside_path_kind", ["parent", "absolute"])
+@pytest.mark.parametrize("outside_is_source", [False, True])
+def test_posix_rename_refuses_paths_outside_jail(
+    tmp_path, sftp_server, outside_path_kind, outside_is_source
+):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "a.txt").write_bytes(b"data")
+    outside = tmp_path / "outside.txt"
+    outside_path = "../outside.txt" if outside_path_kind == "parent" else str(outside)
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        with pytest.raises((IOError, PermissionError)):
+            sftp.posix_rename(
+                outside_path if outside_is_source else "a.txt",
+                "b.txt" if outside_is_source else outside_path,
+            )
+        assert (home / "a.txt").read_bytes() == b"data"
+        assert not (home / "b.txt").exists()
+        assert not outside.exists()
+    finally:
+        _close(client, sftp)
+
+
+def test_posix_rename_target_appearing_mid_rename_is_not_overwritten(
+    tmp_path, sftp_server, monkeypatch
+):
+    home = tmp_path / "home"
+    home.mkdir()
+    source = home / "a.txt"
+    target = home / "b.txt"
+    source.write_bytes(b"new")
+    user = make_user("bob", home, _perms(delete=False), password="pw")
+    handle = sftp_server([user])
+    original_isdir = server_module.os.path.isdir
+
+    def create_target_during_permission_check(path):
+        if path == str(source):
+            target.write_bytes(b"old")
+        return original_isdir(path)
+
+    monkeypatch.setattr(server_module.os.path, "isdir", create_target_during_permission_check)
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        with pytest.raises((IOError, PermissionError)):
+            sftp.posix_rename("a.txt", "b.txt")
+        assert source.read_bytes() == b"new"
+        assert target.read_bytes() == b"old"
+    finally:
+        _close(client, sftp)
+
+
+def test_rename_refuses_existing_target(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "a.txt").write_bytes(b"new")
+    (home / "b.txt").write_bytes(b"old")
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        with pytest.raises(IOError):
+            sftp.rename("a.txt", "b.txt")
+        assert (home / "a.txt").read_bytes() == b"new"
+        assert (home / "b.txt").read_bytes() == b"old"
+    finally:
+        _close(client, sftp)
+
+
 # ───────────── transfer round-trip ─────────────
 
 def test_upload_then_download_roundtrip_updates_byte_count(tmp_path, sftp_server):
@@ -670,6 +829,24 @@ def test_uploaded_file_utime_succeeds_after_rename(tmp_path, sftp_server):
     try:
         _upload(sftp, "x.filepart")
         sftp.rename("x.filepart", "x")
+        sftp.utime("x", (timestamp, timestamp))
+        assert target.stat().st_mtime == timestamp
+    finally:
+        _close(client, sftp)
+
+
+def test_uploaded_file_utime_succeeds_after_posix_rename(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "x"
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+    timestamp = 946684800
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        _upload(sftp, "x.filepart")
+        sftp.posix_rename("x.filepart", "x")
         sftp.utime("x", (timestamp, timestamp))
         assert target.stat().st_mtime == timestamp
     finally:
@@ -857,6 +1034,142 @@ def test_chmod_refuses_uploaded_file_and_leaves_mode(tmp_path, sftp_server):
         with pytest.raises(IOError):
             sftp.chmod("uploaded.txt", 0o444)
         assert target.stat().st_mode == before
+    finally:
+        _close(client, sftp)
+
+
+def test_chmod_to_current_mode_accepted_on_uploaded_file(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "uploaded.txt"
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        _upload(sftp, "uploaded.txt")
+        before = target.stat()
+        mode = stat.S_IMODE(before.st_mode)
+        sftp.chmod("uploaded.txt", mode)
+        after = target.stat()
+        assert stat.S_IMODE(after.st_mode) == mode
+        assert after.st_mtime == before.st_mtime
+    finally:
+        _close(client, sftp)
+
+
+def test_chmod_to_current_mode_refused_on_preexisting_file(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "existing.txt"
+    target.write_bytes(b"data")
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        mode = stat.S_IMODE(target.stat().st_mode)
+        with pytest.raises(IOError):
+            sftp.chmod("existing.txt", mode)
+        assert stat.S_IMODE(target.stat().st_mode) == mode
+    finally:
+        _close(client, sftp)
+
+
+def test_chmod_to_current_mode_refused_without_upload_permission(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "existing.txt"
+    target.write_bytes(b"data")
+    user = make_user("bob", home, _perms(upload=False), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        mode = stat.S_IMODE(target.stat().st_mode)
+        with pytest.raises(IOError):
+            sftp.chmod("existing.txt", mode)
+        assert stat.S_IMODE(target.stat().st_mode) == mode
+    finally:
+        _close(client, sftp)
+
+
+def test_chmod_to_current_mode_refused_on_folder(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        sftp.mkdir("folder")
+        mode = stat.S_IMODE((home / "folder").stat().st_mode)
+        with pytest.raises(IOError):
+            sftp.chmod("folder", mode)
+    finally:
+        _close(client, sftp)
+
+
+def test_chmod_to_current_mode_refused_outside_jail(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"data")
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        mode = stat.S_IMODE(outside.stat().st_mode)
+        with pytest.raises(IOError):
+            sftp.chmod("../outside.txt", mode)
+        assert stat.S_IMODE(outside.stat().st_mode) == mode
+    finally:
+        _close(client, sftp)
+
+
+def test_chmod_with_dates_still_refused_when_mode_matches(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "uploaded.txt"
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+    timestamp = 946684800
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        _upload(sftp, "uploaded.txt")
+        before = target.stat()
+        attr = paramiko.SFTPAttributes()
+        attr.st_mode = stat.S_IMODE(before.st_mode)
+        attr.st_atime = timestamp
+        attr.st_mtime = timestamp
+        with pytest.raises(IOError):
+            sftp._request(CMD_SETSTAT, "uploaded.txt", attr)
+        after = target.stat()
+        assert after.st_mtime == before.st_mtime
+        assert stat.S_IMODE(after.st_mode) == stat.S_IMODE(before.st_mode)
+    finally:
+        _close(client, sftp)
+
+
+def test_overwrite_with_matching_chmod_then_posix_rename_succeeds(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    target = home / "b.txt"
+    target.write_bytes(b"old")
+    user = make_user("bob", home, _perms(), password="pw")
+    handle = sftp_server([user])
+
+    client, sftp = sftp_password(handle.port, "bob", "pw")
+    try:
+        with sftp.open(".b.txt.part", "w") as scratch:
+            scratch.write(b"new")
+        sftp.chmod(".b.txt.part", stat.S_IMODE(sftp.stat("b.txt").st_mode))
+        sftp.posix_rename(".b.txt.part", "b.txt")
+        with sftp.open("b.txt", "r") as result:
+            assert result.read() == b"new"
+        assert not (home / ".b.txt.part").exists()
     finally:
         _close(client, sftp)
 
