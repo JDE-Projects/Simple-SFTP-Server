@@ -153,12 +153,19 @@ class Api:
     def _public_users(self, cfg):
         out = []
         for u in cfg.get("users", []):
-            keys = u.get("authorized_keys", [])
+            keys = []
+            for stored_key in u.get("authorized_keys", []):
+                if not isinstance(stored_key, str) or not stored_key.strip():
+                    continue
+                described = describe_key(stored_key)
+                if described is not None:
+                    keys.append(described)
             out.append({"username": u.get("username"), "home": u.get("home"),
                         "permissions": perms_for(u),
                         "auth": u.get("auth", "password"),
                         "has_password": bool(u.get("password_hash")),
-                        "key": describe_key(keys[0]) if keys else None,
+                        "key": keys[0] if keys else None,
+                        "keys": keys,
                         "managed_folder": bool(u.get("managed_folder"))})
         return out
 

@@ -102,7 +102,8 @@ def _read_rfc4716_key(text):
 def read_one_key(text):
     """Read exactly one OpenSSH public-key line without exposing rejected text."""
     text = text if isinstance(text, str) else ""
-    if "PRIVATE KEY" in text or text.lstrip().startswith("PuTTY-User-Key-File-"):
+    if any(re.fullmatch(r"-----BEGIN(?: [A-Za-z]+)* PRIVATE KEY-----", line.strip())
+           for line in text.splitlines()) or text.lstrip().startswith("PuTTY-User-Key-File-"):
         return None, "That is a private key. Choose the .pub file next to it instead."
     if any(line.strip() == "---- BEGIN SSH2 PUBLIC KEY ----" for line in text.splitlines()):
         return _read_rfc4716_key(text)
@@ -127,7 +128,11 @@ def _load_key(line):
 
 def describe_key(line):
     """Return the display details for a validated OpenSSH public-key line."""
+    if not isinstance(line, str):
+        return None
     parts = line.split()
+    if len(parts) < 2:
+        return None
     key_type = parts[0]
     if key_type.startswith("ecdsa-sha2-"):
         display_type = "ecdsa"

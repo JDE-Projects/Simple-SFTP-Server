@@ -17,12 +17,17 @@
 
 const NARROW_PX = 960;
 const KEYUSER_COMMENT = "keyuser-comment-that-is-deliberately-longer-than-eighty-characters-to-check-the-editor-truncation-title";
+const LEGACY_KEYS = [
+  { type: "ed25519", comment: "legacy-first", fingerprint: "SHA256:LegacyFirstFingerPrint" },
+  { type: "rsa", comment: "legacy-second", fingerprint: "SHA256:LegacySecondFingerPrint" },
+];
 
 // Hover text on each row's sign-in label, in the order the test users are added.
 const EXPECTED_HOVER = [
   "Signs in with a password",
   "Signs in with a password or a public key (ed25519, alice@laptop)",
   `Signs in with a public key (ed25519, ${KEYUSER_COMMENT})`,
+  "Signs in with a public key (2 keys from an older version)",
 ];
 
 const PERMISSION_LABELS = [
@@ -335,6 +340,40 @@ async function checkOneKeyEditor(helpers) {
   }
 }
 
+async function checkLegacyKeysEditor(helpers, label) {
+  const { click, evaluate, waitFor, check, screenshot } = helpers;
+  await click("#userRows tr:nth-child(4) td.act button");
+  await waitFor("document.getElementById('userModal').classList.contains('show')", 5000);
+  const editor = await evaluate(`(() => {
+    const dialog = document.querySelector('#userModal .card').getBoundingClientRect();
+    const lines = [...document.querySelectorAll('#umKeyCurrent .key-line')].map(line => {
+      const box = line.getBoundingClientRect();
+      return { text: line.textContent, title: line.title, top: box.top,
+        inside: box.left >= dialog.left - .5 && box.right <= dialog.right + .5,
+        cut: line.scrollWidth > line.clientWidth };
+    });
+    const note = document.getElementById('umKeyLegacyNote');
+    return { lines, separate: lines.length === 2 && lines[0].top < lines[1].top,
+      note: note.textContent, noteVisible: note.offsetParent !== null,
+      noteCut: note.scrollWidth > note.clientWidth };
+  })()`);
+  check(`${label}: legacy editor lists both keys and the replacement note without cuts`,
+    editor.lines.length === 2 && editor.separate && editor.lines.every(line =>
+      line.inside && !line.cut && line.title.includes("SHA256:Legacy")) &&
+    editor.noteVisible && !editor.noteCut && editor.note ===
+    "From an older version. All of these can sign in. Choose, paste, or generate one key to replace them.",
+  JSON.stringify(editor));
+  await screenshot(`legacy-keys-${label.replace(/\W+/g, "-")}`);
+  await click("#umCancel");
+
+  await click("#userRows tr:nth-child(4) td:first-child");
+  await waitFor("document.getElementById('userHoverCard').style.display === 'block'", 2000);
+  const signIn = await evaluate("[...document.querySelectorAll('#userHoverCard .hover-section')][0].textContent.replace('Sign-in', '')");
+  check(`${label}: legacy hover card says two keys are from an older version`,
+    signIn === "Signs in with a public key (2 keys from an older version)", signIn);
+  await click(".col:nth-child(2) .pane-title");
+}
+
 async function showNotice(helpers) {
   const { click, waitFor, evaluate } = helpers;
   await evaluate("document.getElementById('updateNotice').textContent=''");
@@ -363,6 +402,7 @@ export default async function layout(helpers) {
                  permissions: all(k => k === 'list') });
     users.push({ ...u, username: 'keyuser', auth: 'key',
                   key: {type: 'ed25519', comment: '${KEYUSER_COMMENT}', fingerprint: 'SHA256:KeyuserFingerPrintIsLongEnoughForTheTitle'} });
+    users.push({ ...u, username: 'legacykeys', auth: 'key', key: ${JSON.stringify(LEGACY_KEYS[0])}, keys: ${JSON.stringify(LEGACY_KEYS)} });
     users.push({ ...u, username: 'allaccess', permissions: all(() => true) });
     users.push({ ...u, username: 'noaccess', permissions: all(() => false) });
     for (let i = 1; i <= 20; i += 1) users.push({ ...u, username: 'scrolluser' + i, home: 'D:\\\\Shares\\\\Team\\\\' + i });
@@ -382,6 +422,7 @@ export default async function layout(helpers) {
   await measureBar(helpers, "full width", emptyHeight);
   await screenshot("layout-full-width", 0);
   await checkEditor(helpers, "full width", "editor-full-width");
+  await checkLegacyKeysEditor(helpers, "full width");
 
   await evaluate(`document.querySelector('.app').style.width='${NARROW_PX}px'`);
   await measure(helpers, `${NARROW_PX}px`);
@@ -391,6 +432,7 @@ export default async function layout(helpers) {
   await screenshot("layout-narrow", 0);
   await checkEditor(helpers, `${NARROW_PX}px`, "editor-narrow");
   await checkOneKeyEditor(helpers);
+  await checkLegacyKeysEditor(helpers, `${NARROW_PX}px`);
 
   // Delete from the Manage dialog, for real, keeping the folder. The reply
   // replaces the page's list with the saved one, so the page-only users go too.
