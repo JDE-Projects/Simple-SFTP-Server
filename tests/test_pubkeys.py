@@ -4,6 +4,7 @@ import sys
 from types import SimpleNamespace
 
 import paramiko
+import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 
@@ -11,6 +12,7 @@ from app import paths
 from app.api import Api
 from app.constants import DEFAULT_PORT
 from app.helpers import fingerprint_sha256
+import app.server as server_module
 from app.server import DEFAULT_PERMISSIONS
 from app.services.pubkeys import (
     INVALID_KEY_MESSAGE,
@@ -61,6 +63,15 @@ def test_read_one_key_normalizes_valid_ed25519_and_comment():
     assert result == line
 
 
+def test_read_one_key_accepts_private_key_in_public_key_comment():
+    line = _public_line(ed25519.Ed25519PrivateKey.generate(), "PRIVATE KEY")
+
+    result, error = read_one_key(line)
+
+    assert error is None
+    assert result == line
+
+
 def test_read_one_key_skips_blank_and_comment_lines():
     line = _public_line(ed25519.Ed25519PrivateKey.generate(), "alice")
 
@@ -90,9 +101,26 @@ def test_read_one_key_rejects_private_and_converts_putty_format():
     assert read_one_key(private) == (None, private_message)
     assert all(line not in private_message for line in private.splitlines())
     assert read_one_key("PuTTY-User-Key-File-3: ssh-ed25519") == (None, private_message)
+    assert read_one_key("\n  PuTTY-User-Key-File-3: ssh-ed25519\nEncryption: none") == (
+        None, private_message)
     line = _public_line(ed25519.Ed25519PrivateKey.generate(), "alice@laptop")
     putty = _rfc4716_block(line, ['Comment: "alice@laptop"'])
     assert read_one_key(putty) == (line, None)
+
+
+@pytest.mark.parametrize("header", [
+    "-----BEGIN OPENSSH PRIVATE KEY-----",
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "-----BEGIN EC PRIVATE KEY-----",
+    "-----BEGIN ENCRYPTED PRIVATE KEY-----",
+])
+def test_read_one_key_rejects_pem_private_key_headers(header):
+    private_message = "That is a private key. Choose the .pub file next to it instead."
+
+    result, error = read_one_key(header + "\nprivate material")
+
+    assert (result, error) == (None, private_message)
+    assert header not in error
 
 
 def test_read_one_key_converts_rfc4716_rsa_without_comment():
@@ -256,8 +284,34 @@ def test_public_users_include_key_description(tmp_path, monkeypatch):
     ]})
 
     assert users[0]["key"] == describe_key(line)
+    assert users[0]["keys"] == [describe_key(line)]
     assert users[1]["key"] is None
-    assert all("key_count" not in user for user in users)
+    assert users[1]["keys"] == []
+
+
+def test_public_users_skips_unusable_stored_keys(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    line = _public_line(ed25519.Ed25519PrivateKey.generate(), "valid")
+
+    users = api._public_users({"users": [{
+        "username": "alice", "auth": "key", "authorized_keys": ["", None, "junk", line],
+    }]})
+
+    assert users[0]["keys"] == [describe_key(line)]
+    assert users[0]["key"] == describe_key(line)
+
+
+def test_public_users_returns_legacy_keys_in_stored_order(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    first = _public_line(ed25519.Ed25519PrivateKey.generate(), "first")
+    second = _public_line(ed25519.Ed25519PrivateKey.generate(), "second")
+
+    users = api._public_users({"users": [{
+        "username": "alice", "auth": "key", "authorized_keys": [first, second],
+    }]})
+
+    assert users[0]["keys"] == [describe_key(first), describe_key(second)]
+    assert users[0]["key"] == describe_key(first)
 
 
 def test_describe_key_survives_damaged_stored_key():
@@ -284,6 +338,40 @@ def test_save_user_treats_non_text_key_as_blank(tmp_path, monkeypatch):
     assert result == {"ok": False,
                       "error": "Add at least one public key (or switch to password auth)."}
     assert api._load_config().get("users", []) == []
+
+
+def test_save_user_keeps_or_replaces_legacy_keys(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    first = _public_line(ed25519.Ed25519PrivateKey.generate(), "first")
+    second = _public_line(ed25519.Ed25519PrivateKey.generate(), "second")
+    replacement = _public_line(ed25519.Ed25519PrivateKey.generate(), "replacement")
+    assert api.save_user(_user_payload(home, first))["ok"] is True
+    cfg = api._load_config()
+    cfg["users"][0]["authorized_keys"] = [first, second]
+    assert api._save_config(cfg) is True
+
+    assert api.save_user(_user_payload(home, ""), original="alice")["ok"] is True
+    assert api._load_config()["users"][0]["authorized_keys"] == [first, second]
+    assert api.save_user(_user_payload(home, replacement), original="alice")["ok"] is True
+    assert api._load_config()["users"][0]["authorized_keys"] == [replacement]
+
+
+def test_check_auth_publickey_skips_non_string_stored_keys():
+    key = paramiko.RSAKey.generate(1024)
+    user = {"username": "alice", "auth": "key", "authorized_keys": [None, key.get_name() + " " + key.get_base64()]}
+
+    class AuthService:
+        def __init__(self):
+            self.lockout = server_module.Lockout()
+
+        def find_user(self, username):
+            return user if username == "alice" else None
+
+    iface = server_module.ServerIface(AuthService(), "127.0.0.1", 1)
+
+    assert iface.check_auth_publickey("alice", key) == paramiko.AUTH_SUCCESSFUL
 
 
 def test_pick_key_file_filters_pass_pywebview_check(tmp_path, monkeypatch):

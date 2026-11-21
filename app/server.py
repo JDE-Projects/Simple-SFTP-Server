@@ -665,6 +665,8 @@ class ServerIface(paramiko.ServerInterface):
             # The base64 blob encodes both the key algorithm and the key
             # material, so an exact blob match means same type and same key.
             for ak in u.get("authorized_keys", []):
+                if not isinstance(ak, str):
+                    continue
                 parts = ak.split()
                 if len(parts) >= 2 and parts[1] == offered:
                     self._key_matches[username] = u

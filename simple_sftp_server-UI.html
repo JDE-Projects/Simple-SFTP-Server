@@ -358,6 +358,7 @@
     <div class="meta" id="umPwHint" style="color:var(--text-dim);margin-top:5px">Stored as a one-way hash. It is not shown again after you save.</div></div></div>
   <div id="umKeyWrap" class="row" style="display:none"><div class="f" style="min-width:0"><label class="field-label">Public key</label>
     <div id="umKeyCurrent" class="meta key-line">No key yet.</div>
+    <div id="umKeyLegacyNote" class="meta" style="display:none;margin-top:4px;color:var(--text-dim)">From an older version. All of these can sign in. Choose, paste, or generate one key to replace them.</div>
     <div id="umKeyPending" class="meta key-line" style="display:none;margin-top:4px;color:var(--accent)"></div>
     <div style="margin-top:6px;display:flex;gap:8px"><button id="umKeyFile" class="btn-ghost btn-sm">Choose file...</button><button id="umKeygen" class="btn-ghost btn-sm">Generate a key pair for this user</button></div>
     <textarea id="umKeys" class="mono" rows="2" placeholder="Or paste a public key (ssh-ed25519 AAAA... name@computer)" style="margin-top:6px"></textarea>
@@ -524,6 +525,13 @@ function permissionTag(p){
 const AUTHLBL={password:"PW",key:"Key",both:"PW or Key"};
 // Full sign-in wording for the Users table's accessible label and hover card.
 function authHover(u){
+  const count=Array.isArray(u.keys)?u.keys.length:0;
+  if(count>1){
+    const legacy=" ("+count+" keys from an older version)";
+    if(u.auth==="password") return "Signs in with a password";
+    if(u.auth==="key") return "Signs in with a public key"+legacy;
+    return "Signs in with a password or a public key"+legacy;
+  }
   const key=u.key?" ("+u.key.type+(u.key.comment?", "+u.key.comment:"")+")":" (no key on file)";
   if(u.auth==="password") return "Signs in with a password";
   if(u.auth==="key") return "Signs in with a public key"+key;
@@ -541,14 +549,35 @@ function keyDescription(key,shortFingerprint){
   }
   return text;
 }
-function setKeyLine(id,prefix,key){
-  const el=$(id), full=keyDescription(key,false), shown=keyDescription(key,true);
+function setKeyLine(target,prefix,key){
+  const el=typeof target==="string"?$(target):target, full=keyDescription(key,false), shown=keyDescription(key,true);
   el.textContent=prefix+shown;
   el.title=prefix+full;
 }
+function setCurrentKeys(keys){
+  const current=$("umKeyCurrent"), note=$("umKeyLegacyNote");
+  current.replaceChildren();
+  current.title="";
+  note.style.display="none";
+  if(keys.length>1){
+    current.classList.remove("key-line");
+    keys.forEach(key=>{
+      const line=document.createElement("div");
+      line.className="key-line";
+      setKeyLine(line,"",key);
+      current.append(line);
+    });
+    note.style.display="block";
+  }else{
+    current.classList.add("key-line");
+    if(keys[0])setKeyLine(current,"",keys[0]);
+    else current.textContent="No key yet.";
+  }
+}
 function setPendingKey(key,described){
   pendingKey={key:key,described:described};
-  setKeyLine("umKeyPending","New key, replaces the current one on Save: ",described);
+  const legacy=editingUser&&Array.isArray(editingUser.keys)&&editingUser.keys.length>1;
+  setKeyLine("umKeyPending",legacy?"New key, replaces all of these on Save: ":"New key, replaces the current one on Save: ",described);
   $("umKeyPending").style.display="block";
   $("umKeyErr").textContent="";
 }
@@ -1006,8 +1035,8 @@ function openUser(u){
   $("umKeyPending").textContent="";
   $("umKeyPending").title="";
   $("umKeyPending").style.display="none";
-  if(u&&u.key)setKeyLine("umKeyCurrent","",u.key);
-  else {$("umKeyCurrent").textContent="No key yet.";$("umKeyCurrent").title="";}
+  const keys=u&&Array.isArray(u.keys)&&u.keys.length?u.keys:(u&&u.key?[u.key]:[]);
+  setCurrentKeys(keys);
   $("umPwHint").textContent=u?"Leave blank to keep the current password.":"Stored as a one-way hash. Not shown again after saving.";
   // permissions: default to list-only for new users
   if(u&&u.permissions){
