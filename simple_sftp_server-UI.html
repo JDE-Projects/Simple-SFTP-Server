@@ -134,13 +134,15 @@
   .qmeta{font-size:11px;color:var(--text-dim);margin-top:4px;}
 
   /* users table */
-  /* fixed layout: the button column keeps its width and the four text columns
-     share the rest equally, cutting long text with "..." (full text on hover),
-     so Edit and Delete always fit however narrow the panel gets */
+  /* fixed layout: the button column and the Auth column keep their widths
+     (Auth fits its longest label, "PW or Key (99)") and the other three text
+     columns share the rest equally, cutting long text with "..." (full text
+     on hover), so Manage always fits however narrow the panel gets */
   table{border-collapse:collapse;width:100%;font-size:12px;table-layout:fixed;}
   thead th{position:sticky;top:0;z-index:1;text-align:left;font-weight:600;font-size:10.5px;color:var(--text-dim);
     background:var(--bg-2);padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  thead th.act{width:140px;}
+  thead th.act{width:90px;}
+  thead th.auth{width:120px;}
   tbody td{padding:7px 10px;border-bottom:1px solid rgba(32,41,58,.45);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   tbody td.folder{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--text-dim);}
   tbody td.act{text-align:right;}
@@ -298,7 +300,7 @@
       <div class="panel card-pane grow">
         <div class="pane-head"><div class="pane-title">Users<span id="userCount" class="meta" style="color:var(--text-faint)"></span><span class="grow"></span><button id="addUser" class="btn-primary btn-sm">Add User</button></div></div>
         <div class="pane-body">
-          <table><thead><tr><th>User</th><th>Permissions</th><th>Auth</th><th>Folder</th><th class="act"></th></tr></thead><tbody id="userRows"></tbody></table>
+          <table><thead><tr><th>User</th><th>Permissions</th><th class="auth">Auth</th><th>Folder</th><th class="act"></th></tr></thead><tbody id="userRows"></tbody></table>
           <div id="usersEmpty" class="empty" style="padding:18px 14px">No users yet. Add one, or use Quick Start for an instant full-access share.</div>
         </div>
       </div>
@@ -357,7 +359,7 @@
     </div>
     <div id="umPermErr" class="errline"></div>
   </div></div>
-  <div class="modal-actions"><button id="umCancel" class="btn-ghost">Cancel</button><button id="umSave" class="btn-primary">Save user</button></div>
+  <div class="modal-actions"><button id="umDelete" class="btn-ghost" style="margin-right:auto;color:var(--red)">Delete user</button><button id="umCancel" class="btn-ghost">Cancel</button><button id="umSave" class="btn-primary">Save user</button></div>
 </div></div>
 
 <!-- keygen modal -->
@@ -414,7 +416,7 @@
 <script>
 const $=id=>document.getElementById(id);
 let API=null, meta=null, running=false, isQuick=false;
-let users=[], editingOriginal=null, authMode="password";
+let users=[], editingOriginal=null, editingUser=null, authMode="password";
 let cur=null, curAt=0, pwShown=false;
 let pollTimer=null, tickTimer=null;
 let umPwVisible=false;
@@ -500,7 +502,7 @@ function permSummary(p){
   return on.map(k=>labels[k]).join(", ");
 }
 
-const AUTHLBL={password:"Password",key:"Key",both:"Password or key"};
+const AUTHLBL={password:"PW",key:"Key",both:"PW or Key"};
 
 window.addEventListener("pywebviewready",init);
 window.appEvent=function(ev,p){
@@ -548,6 +550,7 @@ async function init(){
   $("umUser").addEventListener("blur",onValidateUser);
   document.querySelectorAll("#umAuth button").forEach(b=>b.onclick=()=>setAuth(b.dataset.v));
   $("umSave").onclick=onSaveUser;
+  $("umDelete").onclick=()=>{ if(editingUser) confirmDeleteUser(editingUser); };
   $("umKeygen").onclick=openKeygen;
 
   $("kgBrowse").onclick=async()=>{const sug=$("kgType").value.startsWith("Ed25519")?"id_ed25519":"id_rsa";const p=await API.browse_save_key(sug);if(p)$("kgPath").value=p;};
@@ -828,9 +831,8 @@ function renderUsers(){
       `<td class="folder" title="${esc(u.home)}">${esc(u.home)}</td>`+
       `<td class="act"></td>`;
     const act=tr.lastChild;
-    const eb=document.createElement("button");eb.className="cp";eb.textContent="Edit";eb.onclick=()=>openUser(u);
-    const db=document.createElement("button");db.className="cp";db.textContent="Delete";db.style.marginLeft="6px";db.onclick=()=>confirmDeleteUser(u);
-    act.append(eb,db);
+    const mb=document.createElement("button");mb.className="cp";mb.textContent="Manage";mb.onclick=()=>openUser(u);
+    act.append(mb);
     tb.appendChild(tr);
   });
 }
@@ -858,7 +860,9 @@ function setPermissions(p){
 
 function openUser(u){
   editingOriginal=u?u.username:null;
-  $("umTitle").textContent=u?"Edit user":"Add User";
+  editingUser=u||null;
+  $("umTitle").textContent=u?"Manage user":"Add User";
+  $("umDelete").style.display=u?"":"none";
   $("umUser").value=u?u.username:"";
   $("umUserErr").textContent="";
   $("umPermErr").textContent="";
@@ -964,6 +968,7 @@ async function runDeleteUser(u,deleteFolder,okMsg){
   const r=await API.delete_user(u.username,deleteFolder);
   if(!r.ok){toast(r.error||"Could not delete the user.",true);return;}
   users=r.users;renderUsers();
+  if(editingUser&&editingUser.username===u.username) closeModal("userModal");
   toast(r.warning||okMsg,r.warning?"warn":false);
 }
 
