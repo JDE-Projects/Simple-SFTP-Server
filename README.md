@@ -24,8 +24,10 @@ If you enjoyed this project and would like to buy me a coffee, check out my [Ko-
   jail so each user only ever sees inside their own folder.
 - Three access modes per user: read-only, read & write, or upload-only
   (a drop box). Deleting and renaming is off unless you allow it.
-- Sign-in by password, public key, or either one, with a built-in Ed25519
-  (default) or RSA-4096 key generator for users who have none.
+- Sign-in by password, public key, or either one. Each user has one public
+  key: picked from a .pub file (PuTTYgen's saved format is converted),
+  pasted, or made with the built-in Ed25519 (default) or RSA-4096 key
+  generator.
 - Connection card: LAN address, on-demand public IP, port, and the host-key
   fingerprint, all copyable for first-connection verification.
 - Live panel: connected clients with what each one is doing right now (listing a
@@ -135,10 +137,11 @@ pipeline from this repo. You can also check the file against the published
    host-key fingerprint on first connection.
 4. Watch the Live panel for who is connected and what is transferring. Unlock
    an address if it gets locked out after failed logins.
-5. Generate an Ed25519 or RSA key pair for a user who needs one and hand them
-   the private key. The public key is filled into the user form, but it is
-   only saved to the account when you click Save, alongside any keys already
-   listed (it does not replace them).
+5. For a key user, the safest route is to have them make their own key pair
+   and send you only the .pub file: pick it with Choose file... or paste it.
+   Or generate an Ed25519 or RSA key pair for them and hand them the private
+   key. A new key replaces the user's current key when you click Save. The
+   generated key files stay on disk even if you then cancel.
 
 Uploaded files keep their original modified date when the client asks for it,
 as WinSCP does with its Preserve timestamp option (on by default). The server
