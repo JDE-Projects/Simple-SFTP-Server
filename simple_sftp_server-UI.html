@@ -503,6 +503,14 @@ function permSummary(p){
 }
 
 const AUTHLBL={password:"PW",key:"Key",both:"PW or Key"};
+// Hover text for the Users table's sign-in label: says what the short label
+// and its number mean.
+function authHover(u){
+  const n=u.key_count||0, keys=n+" public key"+(n===1?"":"s")+" on file";
+  if(u.auth==="password") return "Signs in with a password";
+  if(u.auth==="key") return "Signs in with a public key ("+keys+")";
+  return "Signs in with a password or a public key ("+keys+")";
+}
 
 window.addEventListener("pywebviewready",init);
 window.appEvent=function(ev,p){
@@ -827,7 +835,7 @@ function renderUsers(){
     const authText=(AUTHLBL[u.auth]||u.auth)+(u.auth!=="password"?" ("+u.key_count+")":"");
     tr.innerHTML=`<td title="${esc(u.username)}"><b>${esc(u.username)}</b></td>`+
       `<td><span class="tag" title="${esc(permSummary(u.permissions))}">${esc(permSummary(u.permissions))}</span></td>`+
-      `<td><span class="tag" title="${esc(authText)}">${esc(authText)}</span></td>`+
+      `<td><span class="tag" title="${esc(authHover(u))}">${esc(authText)}</span></td>`+
       `<td class="folder" title="${esc(u.home)}">${esc(u.home)}</td>`+
       `<td class="act"></td>`;
     const act=tr.lastChild;
