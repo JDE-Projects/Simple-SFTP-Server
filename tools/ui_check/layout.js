@@ -16,12 +16,13 @@
 // (it contacts outside services).
 
 const NARROW_PX = 960;
+const KEYUSER_COMMENT = "keyuser-comment-that-is-deliberately-longer-than-eighty-characters-to-check-the-editor-truncation-title";
 
 // Hover text on each row's sign-in label, in the order the test users are added.
 const EXPECTED_HOVER = [
   "Signs in with a password",
-  "Signs in with a password or a public key (3 public keys on file)",
-  "Signs in with a public key (12 public keys on file)",
+  "Signs in with a password or a public key (ed25519, alice@laptop)",
+  `Signs in with a public key (ed25519, ${KEYUSER_COMMENT})`,
 ];
 
 const PERMISSION_LABELS = [
@@ -222,6 +223,118 @@ async function checkEditor(helpers, label, shotName) {
   await click("#umCancel");
 }
 
+async function checkOneKeyEditor(helpers) {
+  const { click, evaluate, waitFor, check, screenshot } = helpers;
+  const file = {
+    key: "ssh-ed25519 file-key-data file@laptop",
+    described: { type: "ed25519", comment: "file@laptop", fingerprint: "SHA256:FileFingerPrintIsLongEnoughForTheTitle" },
+  };
+  const pasted = {
+    key: "ssh-ed25519 pasted-key-data paste@laptop",
+    described: { type: "ed25519", comment: "paste@laptop", fingerprint: "SHA256:PastedFingerPrintIsLongEnoughForTheTitle" },
+  };
+  const generated = {
+    key: "ssh-ed25519 generated-key-data generated@laptop",
+    described: { type: "ed25519", comment: "generated@laptop", fingerprint: "SHA256:GeneratedFingerPrintIsLongEnoughForTheTitle" },
+  };
+  await evaluate(`(() => {
+    window.__oneKeyData = ${JSON.stringify({ file, pasted, generated })};
+    window.__oneKeyOriginalApi = {
+      pick_key_file: API.pick_key_file, check_public_key: API.check_public_key,
+      generate_keypair: API.generate_keypair, save_user: API.save_user,
+    };
+    window.__oneKeyPickError = false;
+    window.__oneKeyUsers = users;
+    API.pick_key_file = async () => window.__oneKeyPickError
+      ? { ok: false, error: "The chosen file is not a public key." }
+      : { ok: true, ...window.__oneKeyData.file };
+    API.check_public_key = async text => {
+      const data = text.includes("pasted-key") ? window.__oneKeyData.pasted
+        : text.includes("generated-key") ? window.__oneKeyData.generated
+        : window.__oneKeyData.file;
+      return { ok: true, ...data };
+    };
+    API.generate_keypair = async () => ({ ok: true, public: window.__oneKeyData.generated.key,
+      private_path: "C:\\Users\\someone\\.ssh\\id_ed25519" });
+    API.save_user = async payload => {
+      window.__oneKeySaved = payload;
+      return { ok: true, users: window.__oneKeyUsers };
+    };
+  })()`);
+  try {
+    await click("#userRows tr:nth-child(3) td.act button");
+    await waitFor("document.getElementById('userModal').classList.contains('show')", 5000);
+    const current = await evaluate(`(() => {
+      const key = document.getElementById('umKeyCurrent');
+      const dialog = document.querySelector('#userModal .card').getBoundingClientRect();
+      const box = key.getBoundingClientRect();
+      return { inside: box.left >= dialog.left - .5 && box.right <= dialog.right + .5,
+        cut: key.scrollWidth > key.clientWidth, title: key.title };
+    })()`);
+    check("narrow editor: current key stays inside, is cut, and titles the full key",
+      current.inside && current.cut && current.title.includes(KEYUSER_COMMENT) &&
+      current.title.includes("SHA256:KeyuserFingerPrintIsLongEnoughForTheTitle"), JSON.stringify(current));
+
+    await click("#umKeyFile");
+    check("Choose file: shows the chosen key as pending",
+      await evaluate(`document.getElementById('umKeyPending').offsetParent !== null &&
+        document.getElementById('umKeyPending').textContent.includes(${JSON.stringify(file.described.comment)})`));
+    // The key section with a cut current key and a pending key, in both themes.
+    await evaluate("document.getElementById('umKeyWrap').scrollIntoView({block: 'center'})");
+    await screenshot("key-section-narrow-dark", 0);
+    await evaluate("document.getElementById('theme-btn').click()");
+    await screenshot("key-section-narrow-light", 0);
+    await evaluate("document.getElementById('theme-btn').click()");
+
+    await evaluate(`(() => { const e = document.getElementById('umKeys');
+      e.value = ${JSON.stringify(pasted.key)}; e.dispatchEvent(new Event('change')); })()`);
+    await waitFor(`document.getElementById('umKeyPending').textContent.includes(${JSON.stringify(pasted.described.comment)})`, 5000);
+    check("Paste: replaces pending, then clears the textarea",
+      await evaluate("document.getElementById('umKeys').value === ''"));
+
+    await click("#umKeygen");
+    await waitFor("document.getElementById('keygenModal').classList.contains('show')", 5000);
+    await evaluate("document.getElementById('kgPath').value='C:\\\\Users\\\\someone\\\\.ssh\\\\id_ed25519'");
+    await click("#kgGo");
+    await waitFor(`document.getElementById('umKeyPending').textContent.includes(${JSON.stringify(generated.described.comment)})`, 5000);
+    check("Generate: replaces pending with the generated key", true);
+    await click("#kgClose");
+
+    await evaluate("window.__oneKeyPickError = true");
+    await click("#umKeyFile");
+    const error = await evaluate(`({ error: document.getElementById('umKeyErr').textContent,
+      pending: document.getElementById('umKeyPending').textContent })`);
+    check("Choose file error: shows the error and keeps pending", error.error === "The chosen file is not a public key." &&
+      error.pending.includes(generated.described.comment), JSON.stringify(error));
+
+    await click("#umSave");
+    await waitFor("!document.getElementById('userModal').classList.contains('show')", 5000);
+    const saved = await evaluate("window.__oneKeySaved");
+    check("Save: sends the pending public key without authorized_keys",
+      saved.public_key === generated.key && !("authorized_keys" in saved), JSON.stringify(saved));
+
+    await click("#userRows tr:nth-child(3) td.act button");
+    await click("#umCancel");
+    await click("#userRows tr:nth-child(3) td.act button");
+    const reset = await evaluate(`({ pending: document.getElementById('umKeyPending').offsetParent !== null,
+      text: document.getElementById('umKeys').value, error: document.getElementById('umKeyErr').textContent })`);
+    check("Cancel then reopen: pending, pasted text, and key error are cleared",
+      !reset.pending && reset.text === "" && reset.error === "", JSON.stringify(reset));
+    await click("#umCancel");
+
+    const authTags = await evaluate("[...document.querySelectorAll('#userRows tr')].slice(0, 3).map(tr => tr.children[2].textContent)");
+    check("Auth tags show PW, PW or Key, and Key without counts",
+      JSON.stringify(authTags) === JSON.stringify(["PW", "PW or Key", "Key"]), JSON.stringify(authTags));
+  } finally {
+    await evaluate(`(() => {
+      Object.assign(API, window.__oneKeyOriginalApi);
+      delete window.__oneKeyOriginalApi;
+      delete window.__oneKeyData;
+      delete window.__oneKeyUsers;
+    })()`);
+  }
+}
+
 async function showNotice(helpers) {
   const { click, waitFor, evaluate } = helpers;
   await evaluate("document.getElementById('updateNotice').textContent=''");
@@ -245,9 +358,11 @@ export default async function layout(helpers) {
     const all = value => Object.fromEntries(PERM_KEYS.map(k => [k, value(k)]));
     u.home = 'C:\\\\Users\\\\someone\\\\Documents\\\\Shared with the team\\\\Quarterly reports and invoices\\\\2026\\\\incoming';
     u.permissions = all(k => k !== 'delete_dir');
-    users.push({ ...u, username: 'thirty-two-character-user-name-x', auth: 'both', key_count: 3,
+    users.push({ ...u, username: 'thirty-two-character-user-name-x', auth: 'both',
+                  key: {type: 'ed25519', comment: 'alice@laptop', fingerprint: 'SHA256:BothUserFingerPrintIsLongEnoughForTheTitle'},
                  permissions: all(k => k === 'list') });
-    users.push({ ...u, username: 'keyuser', auth: 'key', key_count: 12 });
+    users.push({ ...u, username: 'keyuser', auth: 'key',
+                  key: {type: 'ed25519', comment: '${KEYUSER_COMMENT}', fingerprint: 'SHA256:KeyuserFingerPrintIsLongEnoughForTheTitle'} });
     users.push({ ...u, username: 'allaccess', permissions: all(() => true) });
     users.push({ ...u, username: 'noaccess', permissions: all(() => false) });
     for (let i = 1; i <= 20; i += 1) users.push({ ...u, username: 'scrolluser' + i, home: 'D:\\\\Shares\\\\Team\\\\' + i });
@@ -275,6 +390,7 @@ export default async function layout(helpers) {
   await measureBar(helpers, `${NARROW_PX}px`, emptyHeight);
   await screenshot("layout-narrow", 0);
   await checkEditor(helpers, `${NARROW_PX}px`, "editor-narrow");
+  await checkOneKeyEditor(helpers);
 
   // Delete from the Manage dialog, for real, keeping the folder. The reply
   // replaces the page's list with the saved one, so the page-only users go too.
