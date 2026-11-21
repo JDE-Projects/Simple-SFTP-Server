@@ -5,7 +5,7 @@
 // Covers: the Users table keeps each row's Manage button inside the panel
 // with a long username, a long folder path, the longest permissions summary,
 // a password-or-key user, and a key-only user with a two-digit key count;
-// every sign-in label shows in full; the account editor's sign-in choices fit
+// every sign-in label shows in full and its hover text explains it; the account editor's sign-in choices fit
 // on one row, the "Password or key" helper note shows only for that choice,
 // and Delete user shows only when managing an existing user; the update
 // notice sits on the bar's true center and the bar stays one row; the Public
@@ -21,6 +21,13 @@
 // (it contacts outside services).
 
 const NARROW_PX = 960;
+
+// Hover text on each row's sign-in label, in the order the test users are added.
+const EXPECTED_HOVER = [
+  "Signs in with a password",
+  "Signs in with a password or a public key (3 public keys on file)",
+  "Signs in with a public key (12 public keys on file)",
+];
 
 async function measure(helpers, label) {
   const { evaluate, check } = helpers;
@@ -43,6 +50,7 @@ async function measure(helpers, label) {
         tagsInCell: [...tr.querySelectorAll('td .tag')].every(t =>
           t.getBoundingClientRect().right <= t.parentElement.getBoundingClientRect().right + 0.5),
         authText: tr.children[2].querySelector('.tag').textContent,
+        authHover: tr.children[2].querySelector('.tag').title,
         authCut: (t => t.scrollWidth > t.clientWidth)(tr.children[2].querySelector('.tag')),
       };
     });
@@ -59,6 +67,8 @@ async function measure(helpers, label) {
     check(`${label}: row ${i + 1} permission and sign-in tags stay in their columns`,
       r.tagsInCell, JSON.stringify(r));
     check(`${label}: row ${i + 1} sign-in label "${r.authText}" not cut`, !r.authCut, JSON.stringify(r));
+    check(`${label}: row ${i + 1} sign-in hover text "${r.authHover}"`,
+      r.authHover === EXPECTED_HOVER[i], `expected "${EXPECTED_HOVER[i]}"`);
   });
 }
 
