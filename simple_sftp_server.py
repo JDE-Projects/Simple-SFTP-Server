@@ -28,7 +28,7 @@ from app.debug_log import debug
 from app.paths import resource_path
 from app.services.prefs import _apply_window_rect, _restore_geometry, _save_geometry
 
-APP_VERSION = "1.9.0"
+APP_VERSION = "1.10.0"
 
 
 # Remove Qt's remote-debugging switches from a built app at startup, so the
