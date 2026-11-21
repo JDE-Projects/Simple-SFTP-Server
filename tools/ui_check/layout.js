@@ -2,16 +2,11 @@
 // for the helpers and how this is launched). Checks layout in the real
 // pywebview window, using the one user tools/ui_check/fixture.py writes.
 //
-// Covers: the Users table keeps each row's Manage button inside the panel
-// with a long username, a long folder path, the longest permissions summary,
-// a password-or-key user, and a key-only user with a two-digit key count;
-// every sign-in label shows in full and its hover text explains it; the account editor's sign-in choices fit
-// on one row, the "Password or key" helper note shows only for that choice,
-// and Delete user shows only when managing an existing user; the update
-// notice sits on the bar's true center and the bar stays one row; the Public
-// IP button names the services it asks. Each layout check runs twice:
-// at the window's own width, and with the page narrowed to 960px, a little
-// under what the app's 980px minimum window leaves for the page.
+// Covers: the one-line Users table keeps its compact permissions and sign-in
+// tags, user names, and Manage buttons inside the panel. Its hover card shows
+// complete user details and stays within the Users panel at full and narrow
+// widths. It also retains the editor, delete-flow, bottom-bar, and Public IP
+// layout checks. The page-only users are never saved.
 //
 // The long path and permissions are set on the page's copy of the user list
 // only (nothing is saved). Last, the fixture's user is deleted for real from
@@ -29,6 +24,11 @@ const EXPECTED_HOVER = [
   "Signs in with a public key (12 public keys on file)",
 ];
 
+const PERMISSION_LABELS = [
+  "List", "Download", "Upload", "Delete files", "Rename files",
+  "Rename folders", "Create folder", "Delete folder",
+];
+
 async function measure(helpers, label) {
   const { evaluate, check } = helpers;
   const t = await evaluate(`(() => {
@@ -38,7 +38,9 @@ async function measure(helpers, label) {
       const act = tr.querySelector('td.act');
       const btnEls = [...act.querySelectorAll('button')];
       const btns = btnEls.map(b => b.getBoundingClientRect());
-      const folder = tr.querySelector('td.folder');
+      const user = tr.children[0];
+      const permissions = tr.children[1].querySelector('.tag');
+      const auth = tr.children[2].querySelector('.tag');
       return {
         btnLeft: Math.min(...btns.map(r => r.left)),
         btnRight: Math.max(...btns.map(r => r.right)),
@@ -46,30 +48,125 @@ async function measure(helpers, label) {
         actLeft: act.getBoundingClientRect().left,
         btnText: btnEls.map(b => b.textContent).join(','),
         btnTextCut: btnEls.some(b => b.scrollWidth > b.clientWidth),
-        folderCut: folder.scrollWidth > folder.clientWidth,
         tagsInCell: [...tr.querySelectorAll('td .tag')].every(t =>
           t.getBoundingClientRect().right <= t.parentElement.getBoundingClientRect().right + 0.5),
-        authText: tr.children[2].querySelector('.tag').textContent,
-        authHover: tr.children[2].querySelector('.tag').title,
-        authCut: (t => t.scrollWidth > t.clientWidth)(tr.children[2].querySelector('.tag')),
+        username: user.textContent,
+        userCut: user.scrollWidth > user.clientWidth,
+        permissionsText: permissions.textContent,
+        permissionsCut: permissions.scrollWidth > permissions.clientWidth,
+        authText: auth.textContent,
+        authCut: auth.scrollWidth > auth.clientWidth,
+        authLabel: auth.getAttribute('aria-label'),
+        manageLabel: btnEls[0].getAttribute('aria-label'),
       };
     });
-    return { right: box.right, scrollW: body.scrollWidth, clientW: body.clientWidth, rows };
+    const headsCut = [...document.querySelectorAll('#userRows')[0].closest('table').querySelectorAll('thead th')]
+      .filter(th => th.scrollWidth > th.clientWidth).map(th => th.textContent);
+    return { right: box.right, scrollW: body.scrollWidth, clientW: body.clientWidth, headsCut,
+      listScrolls: body.scrollHeight > body.clientHeight, rows,
+      expectedUsers: window.__layoutUsers, expectedPermissions: window.__layoutPermissions };
   })()`);
   check(`${label}: Users table does not scroll sideways`, t.scrollW <= t.clientW,
     `scrollWidth ${t.scrollW} > clientWidth ${t.clientW}`);
+  check(`${label}: no Users column heading cut`, t.headsCut.length === 0, JSON.stringify(t.headsCut));
+  check(`${label}: Users list scrolls for the added rows`, t.rows.length > 5 && t.listScrolls,
+    JSON.stringify({ rows: t.rows.length, listScrolls: t.listScrolls }));
   t.rows.forEach((r, i) => {
     check(`${label}: row ${i + 1} one Manage button, fully inside the panel, text not cut`,
       r.btnCount === 1 && r.btnText === 'Manage' && !r.btnTextCut &&
       r.btnRight <= t.right + 0.5 && r.btnLeft >= r.actLeft - 0.5,
       JSON.stringify({ ...r, panelRight: t.right }));
-    check(`${label}: row ${i + 1} long folder path shortened`, r.folderCut, JSON.stringify(r));
     check(`${label}: row ${i + 1} permission and sign-in tags stay in their columns`,
       r.tagsInCell, JSON.stringify(r));
+    const expectedUser = t.expectedUsers[i].username;
+    const expectedPermissions = t.expectedPermissions[i];
+    check(`${label}: row ${i + 1} permissions tag "${expectedPermissions}" not cut`,
+      r.permissionsText === expectedPermissions && !r.permissionsCut, JSON.stringify(r));
+    const longUserMayCut = i === 1;
+    check(`${label}: row ${i + 1} username ${longUserMayCut ? "is only cut when needed" : "not cut"}`,
+      r.username === expectedUser && (longUserMayCut ? (label === `${NARROW_PX}px` ? r.userCut : true) : !r.userCut), JSON.stringify(r));
+    check(`${label}: row ${i + 1} Manage label names the user`,
+      r.manageLabel === `Manage ${expectedUser}`, JSON.stringify(r));
     check(`${label}: row ${i + 1} sign-in label "${r.authText}" not cut`, !r.authCut, JSON.stringify(r));
-    check(`${label}: row ${i + 1} sign-in hover text "${r.authHover}"`,
-      r.authHover === EXPECTED_HOVER[i], `expected "${EXPECTED_HOVER[i]}"`);
+    const expectedAuth = EXPECTED_HOVER[i] ?? "Signs in with a password";
+    check(`${label}: row ${i + 1} sign-in spoken text "${r.authLabel}"`,
+      r.authLabel === expectedAuth, `expected "${expectedAuth}"`);
   });
+}
+
+async function checkHoverCard(helpers, label, shotName) {
+  const { click, evaluate, waitFor, check, screenshot, press } = helpers;
+  const cardVisible = "document.getElementById('userHoverCard').style.display === 'block'";
+  const moveAway = () => click(".col:nth-child(2) .pane-title");
+  await click('#userRows tr:first-child td:first-child');
+  check(`${label}: row 1 hover card opens`, await waitFor(cardVisible, 2000));
+  const cardInside = await evaluate(`(() => {
+    const card = document.getElementById('userHoverCard').getBoundingClientRect();
+    const pane = document.querySelector('#userRows').closest('.pane-body').getBoundingClientRect();
+    return { inside: card.left >= pane.left - .5 && card.right <= pane.right + .5 &&
+      card.top >= pane.top - .5 && card.bottom <= pane.bottom + .5, card, pane };
+  })()`);
+  const first = await evaluate(`(() => {
+    const card = document.getElementById('userHoverCard');
+    const folder = card.querySelector('.hover-folder');
+    const entries = [...card.querySelectorAll('.hover-permission')].map(e => ({
+      label: e.lastChild.textContent, allowed: !e.classList.contains('off') }));
+    return { user: card.querySelector('.hover-user').textContent,
+      signIn: [...card.querySelectorAll('.hover-section')][0].textContent.replace('Sign-in', ''),
+      folder: folder.textContent, folderCut: folder.scrollWidth > folder.clientWidth, entries };
+  })()`);
+  const expected = await evaluate(`({ user: window.__layoutUsers[0].username, home: window.__layoutUsers[0].home,
+    allowed: window.__layoutUsers[0].permissions, keys: PERM_KEYS })`);
+  check(`${label}: row 1 card has complete sign-in, folder, and permissions`,
+    first.user === expected.user && first.signIn === EXPECTED_HOVER[0] && first.folder === expected.home &&
+    !first.folderCut && first.entries.length === 8 &&
+    first.entries.every((entry, i) => entry.label === PERMISSION_LABELS[i] && entry.allowed === !!expected.allowed[expected.keys[i]]),
+    JSON.stringify(first));
+  check(`${label}: hover card stays inside the Users panel`, cardInside.inside, JSON.stringify(cardInside));
+  await screenshot(shotName, 0);
+
+  await moveAway();
+  check(`${label}: moving away closes the hover card`, await waitFor(`!(${cardVisible})`, 1000));
+  await click('#userRows tr:first-child td:first-child');
+  check(`${label}: card reopens before Escape`, await waitFor(cardVisible, 2000));
+  await press('Escape');
+  check(`${label}: Escape closes the hover card`, await waitFor(`!(${cardVisible})`, 1000));
+
+  // With row 2's card open (below row 2), moving up to row 1 closes it at
+  // once, before row 1's own card is due.
+  await click('#userRows tr:nth-child(2) td:first-child');
+  check(`${label}: row 2 card opens`, await waitFor(`${cardVisible} && document.querySelector('#userHoverCard .hover-user').textContent === window.__layoutUsers[1].username`, 2000));
+  await click('#userRows tr:first-child td:first-child');
+  check(`${label}: moving to row 1 closes row 2's card at once`, await waitFor(`!(${cardVisible})`, 300));
+  check(`${label}: row 1 card follows`, await waitFor(`${cardVisible} && document.querySelector('#userHoverCard .hover-user').textContent === window.__layoutUsers[0].username`, 2000));
+  await moveAway();
+  await waitFor(`!(${cardVisible})`, 1000);
+
+  // Scrolling closes the card, so each hover waits for the scroll event first.
+  const scrollList = async (toEnd) => {
+    await evaluate(`(() => { const pane = document.querySelector('#userRows').closest('.pane-body');
+      window.__listScrolled = false;
+      pane.addEventListener('scroll', () => { window.__listScrolled = true; }, { once: true });
+      pane.scrollTop = ${toEnd ? "pane.scrollHeight" : "0"}; })()`);
+    await waitFor("window.__listScrolled", 2000);
+  };
+  await scrollList(true);
+  await click('#userRows tr:last-child td:first-child');
+  check(`${label}: last row hover card opens after scrolling`, await waitFor(cardVisible, 2000));
+  const last = await evaluate(`(() => { const card = document.getElementById('userHoverCard').getBoundingClientRect();
+    const row = document.querySelector('#userRows tr:last-child').getBoundingClientRect();
+    const pane = document.querySelector('#userRows').closest('.pane-body').getBoundingClientRect();
+    return { above: card.bottom <= row.top + .5, inside: card.left >= pane.left - .5 && card.right <= pane.right + .5 &&
+      card.top >= pane.top - .5 && card.bottom <= pane.bottom + .5, card, row, pane }; })()`);
+  check(`${label}: last row card opens above the row and stays inside the panel`, last.above && last.inside, JSON.stringify(last));
+
+  await scrollList(false);
+  check(`${label}: scrolling closes the hover card`, await waitFor(`!(${cardVisible})`, 1000));
+  await click('#userRows tr:nth-child(2) td:first-child');
+  check(`${label}: row 2 card opens before re-render`, await waitFor(`${cardVisible} && document.querySelector('#userHoverCard .hover-user').textContent === window.__layoutUsers[1].username`, 2000));
+  await evaluate('renderUsers()');
+  check(`${label}: renderUsers closes the hover card`, await waitFor(`!(${cardVisible})`, 1000));
+  await moveAway();
 }
 
 async function measureBar(helpers, label, emptyHeight) {
@@ -141,21 +238,31 @@ export default async function layout(helpers) {
   check("Public IP button names both services",
     pubTitle.includes("api.ipify.org") && pubTitle.includes("checkip.amazonaws.com"), pubTitle);
 
-  // Page-only test data: a long folder path and every permission but one,
-  // which gives the longest summary. A second user with the default ones.
+  // Page-only test data exercises compact permission counts, truncation, and
+  // scrolling without changing the saved fixture user.
   await evaluate(`(() => {
     const u = users[0];
+    const all = value => Object.fromEntries(PERM_KEYS.map(k => [k, value(k)]));
     u.home = 'C:\\\\Users\\\\someone\\\\Documents\\\\Shared with the team\\\\Quarterly reports and invoices\\\\2026\\\\incoming';
-    u.permissions = Object.fromEntries(PERM_KEYS.map(k => [k, k !== 'delete_dir']));
-    users.push({ ...u, username: 'a-much-longer-username-here', auth: 'both', key_count: 3,
-                 permissions: Object.fromEntries(PERM_KEYS.map(k => [k, k === 'list'])) });
+    u.permissions = all(k => k !== 'delete_dir');
+    users.push({ ...u, username: 'thirty-two-character-user-name-x', auth: 'both', key_count: 3,
+                 permissions: all(k => k === 'list') });
     users.push({ ...u, username: 'keyuser', auth: 'key', key_count: 12 });
+    users.push({ ...u, username: 'allaccess', permissions: all(() => true) });
+    users.push({ ...u, username: 'noaccess', permissions: all(() => false) });
+    for (let i = 1; i <= 20; i += 1) users.push({ ...u, username: 'scrolluser' + i, home: 'D:\\\\Shares\\\\Team\\\\' + i });
+    window.__layoutUsers = users.map(u => ({ ...u, permissions: { ...u.permissions } }));
+    window.__layoutPermissions = users.map(u => {
+      const count = PERM_KEYS.filter(k => u.permissions[k]).length;
+      return count === 8 ? 'All' : count === 0 ? 'None' : count + ' of 8';
+    });
     renderUsers();
   })()`);
 
   const emptyHeight = await evaluate("document.querySelector('.statusbar').getBoundingClientRect().height");
 
   await measure(helpers, "full width");
+  await checkHoverCard(helpers, "full width", "hover-card-full-width-dark");
   check("full width: notice appears after Check for updates", await showNotice(helpers));
   await measureBar(helpers, "full width", emptyHeight);
   await screenshot("layout-full-width", 0);
@@ -163,6 +270,7 @@ export default async function layout(helpers) {
 
   await evaluate(`document.querySelector('.app').style.width='${NARROW_PX}px'`);
   await measure(helpers, `${NARROW_PX}px`);
+  await checkHoverCard(helpers, `${NARROW_PX}px`, "hover-card-narrow-dark");
   check(`${NARROW_PX}px: notice appears after Check for updates`, await showNotice(helpers));
   await measureBar(helpers, `${NARROW_PX}px`, emptyHeight);
   await screenshot("layout-narrow", 0);

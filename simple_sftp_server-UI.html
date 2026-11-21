@@ -134,20 +134,30 @@
   .qmeta{font-size:11px;color:var(--text-dim);margin-top:4px;}
 
   /* users table */
-  /* fixed layout: the button column and the Auth column keep their widths
-     (Auth fits its longest label, "PW or Key (99)") and the other three text
-     columns share the rest equally, cutting long text with "..." (full text
-     on hover), so Manage always fits however narrow the panel gets */
+  /* fixed layout: Permissions, Auth, and Manage keep their widths while User
+     takes the remaining space and shortens long names with "..."; full user
+     details are available from the row hover card. */
   table{border-collapse:collapse;width:100%;font-size:12px;table-layout:fixed;}
   thead th{position:sticky;top:0;z-index:1;text-align:left;font-weight:600;font-size:10.5px;color:var(--text-dim);
     background:var(--bg-2);padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   thead th.act{width:90px;}
   thead th.auth{width:120px;}
+  thead th.permissions{width:100px;}
   tbody td{padding:7px 10px;border-bottom:1px solid rgba(32,41,58,.45);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  tbody td.folder{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--text-dim);}
   tbody td.act{text-align:right;}
   tbody td .tag{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;}
   .tag{font-size:10px;color:var(--text-dim);background:var(--panel-2);border:1px solid var(--border-2);padding:2px 7px;border-radius:20px;}
+  #userHoverCard{position:fixed;z-index:50;display:none;box-sizing:border-box;background:var(--panel);border:1px solid var(--border-2);
+    border-radius:10px;padding:11px 13px;box-shadow:0 10px 30px rgba(0,0,0,.35);font-size:11.5px;line-height:1.35;overflow-y:auto;}
+  #userHoverCard .hover-user{font-weight:700;font-size:12.5px;}
+  #userHoverCard .hover-label{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;}
+  #userHoverCard .hover-folder{font-family:"JetBrains Mono",monospace;font-size:11px;overflow-wrap:anywhere;}
+  #userHoverCard .hover-section{margin-top:8px;}
+  #userHoverCard .hover-permissions{display:grid;grid-template-columns:1fr 1fr;gap:2px 14px;}
+  #userHoverCard .hover-permission.off{color:var(--text-faint);}
+  #userHoverCard .hover-permission .mark{display:inline-block;width:13px;color:var(--green);}
+  #userHoverCard .hover-permission.off .mark{color:var(--text-faint);}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
 
   /* bottom bar */
   /* equal side columns keep the update notice on the window's true center,
@@ -300,7 +310,7 @@
       <div class="panel card-pane grow">
         <div class="pane-head"><div class="pane-title">Users<span id="userCount" class="meta" style="color:var(--text-faint)"></span><span class="grow"></span><button id="addUser" class="btn-primary btn-sm">Add User</button></div></div>
         <div class="pane-body">
-          <table><thead><tr><th>User</th><th>Permissions</th><th class="auth">Auth</th><th>Folder</th><th class="act"></th></tr></thead><tbody id="userRows"></tbody></table>
+          <table><thead><tr><th>User</th><th class="permissions">Permissions</th><th class="auth">Auth</th><th class="act"></th></tr></thead><tbody id="userRows"></tbody></table>
           <div id="usersEmpty" class="empty" style="padding:18px 14px">No users yet. Add one, or use Quick Start for an instant full-access share.</div>
         </div>
       </div>
@@ -412,6 +422,7 @@
 </div></div>
 
 <div id="toast"></div>
+<div id="userHoverCard" role="tooltip"></div>
 
 <script>
 const $=id=>document.getElementById(id);
@@ -433,6 +444,7 @@ function focusableEls(card){
     .filter(el=>!el.disabled && el.tabIndex!==-1 && el.offsetParent!==null);
 }
 function openModal(id,opts){
+  closeUserHoverCard();
   opts=opts||{};
   const el=$(id);
   modalStack.push({id:id,returnTo:document.activeElement});
@@ -462,6 +474,10 @@ function closeModal(id){
   }
 }
 document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"&&closeUserHoverCard()){
+    e.preventDefault();
+    return;
+  }
   if(!modalStack.length)return;
   const top=modalStack[modalStack.length-1];
   if(e.key==="Escape"){
@@ -492,19 +508,15 @@ const PERM_KEYS=["list","download","upload","delete","rename_file","rename_dir",
 const PERM_IDS={list:"pList",download:"pDownload",upload:"pUpload",delete:"pDelete",
   rename_file:"pRenameFile",rename_dir:"pRenameDir",mkdir:"pMkdir",delete_dir:"pDeleteDir"};
 
-function permSummary(p){
-  if(!p)return "-";
+function permissionTag(p){
   const on=PERM_KEYS.filter(k=>p[k]);
-  if(!on.length)return "none";
-  if(on.length===PERM_KEYS.length)return "full access";
-  const labels={list:"list",download:"dl",upload:"ul",delete:"del files",
-    rename_file:"ren files",rename_dir:"ren dirs",mkdir:"mkdir",delete_dir:"del dirs"};
-  return on.map(k=>labels[k]).join(", ");
+  if(!on.length)return {text:"None",label:"No permissions allowed"};
+  if(on.length===PERM_KEYS.length)return {text:"All",label:"All permissions allowed"};
+  return {text:on.length+" of "+PERM_KEYS.length,label:on.length+" of "+PERM_KEYS.length+" permissions allowed"};
 }
 
 const AUTHLBL={password:"PW",key:"Key",both:"PW or Key"};
-// Hover text for the Users table's sign-in label: says what the short label
-// and its number mean.
+// Full sign-in wording for the Users table's accessible label and hover card.
 function authHover(u){
   const n=u.key_count||0, keys=n+" public key"+(n===1?"":"s")+" on file";
   if(u.auth==="password") return "Signs in with a password";
@@ -826,21 +838,97 @@ async function copyCard(){
 }
 
 /* ---------- users ---------- */
+const PERM_LABELS={list:"List",download:"Download",upload:"Upload",delete:"Delete files",
+  rename_file:"Rename files",rename_dir:"Rename folders",mkdir:"Create folder",delete_dir:"Delete folder"};
+let userHoverTimer=null, userHoverRow=null, userHoverShownRow=null;
+
+function cancelUserHoverTimer(){clearTimeout(userHoverTimer);userHoverTimer=null;}
+function closeUserHoverCard(){
+  cancelUserHoverTimer();
+  const card=$("userHoverCard");
+  const wasOpen=card.style.display==="block";
+  card.style.display="none";
+  userHoverRow=null;
+  userHoverShownRow=null;
+  return wasOpen;
+}
+function scheduleUserHoverClose(){
+  cancelUserHoverTimer();
+  userHoverTimer=setTimeout(closeUserHoverCard,150);
+}
+function addHoverText(parent,className,text){
+  const el=document.createElement("div");el.className=className;el.textContent=text;parent.append(el);return el;
+}
+function showUserHoverCard(row,u){
+  if(!document.body.contains(row)||!row.matches(":hover"))return;
+  const card=$("userHoverCard"), pane=row.closest(".pane-body");
+  if(!pane)return;
+  card.replaceChildren();
+  addHoverText(card,"hover-user",u.username);
+  const signIn=document.createElement("div");signIn.className="hover-section";addHoverText(signIn,"hover-label","Sign-in");addHoverText(signIn,"",authHover(u));card.append(signIn);
+  const folder=document.createElement("div");folder.className="hover-section";addHoverText(folder,"hover-label","Folder");addHoverText(folder,"hover-folder",u.home||"");card.append(folder);
+  const permissions=document.createElement("div");permissions.className="hover-section";addHoverText(permissions,"hover-label","Permissions");
+  const grid=document.createElement("div");grid.className="hover-permissions";
+  PERM_KEYS.forEach(k=>{
+    const allowed=!!(u.permissions&&u.permissions[k]), item=document.createElement("div");
+    item.className="hover-permission"+(allowed?"":" off");
+    const mark=document.createElement("span");mark.className="mark";mark.setAttribute("aria-hidden","true");mark.textContent=allowed?"✓":"✕";
+    const spoken=document.createElement("span");spoken.className="sr-only";spoken.textContent=allowed?"allowed ":"not allowed ";
+    item.append(mark,spoken,document.createTextNode(PERM_LABELS[k]));grid.append(item);
+  });
+  permissions.append(grid);card.append(permissions);
+  const paneRect=pane.getBoundingClientRect(), rowRect=row.getBoundingClientRect(), gap=4;
+  const width=Math.min(400,Math.max(0,paneRect.width-24));
+  card.style.width=width+"px";
+  card.style.left=(paneRect.left+12)+"px";
+  card.style.maxHeight="";
+  card.style.display="block";
+  const cardHeight=card.getBoundingClientRect().height;
+  const below=paneRect.bottom-rowRect.bottom-gap, above=rowRect.top-paneRect.top-gap;
+  const useBelow=below>=cardHeight||below>=above;
+  const room=useBelow?below:above;
+  card.style.maxHeight=Math.max(0,room)+"px";
+  const height=Math.min(card.getBoundingClientRect().height,Math.max(0,room));
+  card.style.top=(useBelow?rowRect.bottom+gap:rowRect.top-gap-height)+"px";
+  userHoverShownRow=row;
+}
+// Back on the row whose card is open: keep it. On any other row: close the
+// open card at once, so it never shows one user while hovering another.
+function scheduleUserHoverCard(row,u){
+  if(userHoverShownRow===row){cancelUserHoverTimer();return;}
+  if(userHoverShownRow)closeUserHoverCard();
+  cancelUserHoverTimer();
+  userHoverRow=row;
+  userHoverTimer=setTimeout(()=>{
+    userHoverTimer=null;
+    if(userHoverRow===row&&document.body.contains(row)&&row.matches(":hover"))showUserHoverCard(row,u);
+  },500);
+}
+$("userHoverCard").addEventListener("mouseenter",cancelUserHoverTimer);
+$("userHoverCard").addEventListener("mouseleave",scheduleUserHoverClose);
+$("userRows").closest(".pane-body").addEventListener("scroll",closeUserHoverCard);
+window.addEventListener("resize",closeUserHoverCard);
+window.addEventListener("blur",closeUserHoverCard);
+document.addEventListener("visibilitychange",()=>{if(document.hidden)closeUserHoverCard();});
+
 function renderUsers(){
+  closeUserHoverCard();
   const tb=$("userRows");tb.innerHTML="";
   $("userCount").textContent=users.length?("  ("+users.length+")"):""
   $("usersEmpty").style.display=users.length?"none":"block";
   users.forEach(u=>{
     const tr=document.createElement("tr");
     const authText=(AUTHLBL[u.auth]||u.auth)+(u.auth!=="password"?" ("+u.key_count+")":"");
-    tr.innerHTML=`<td title="${esc(u.username)}"><b>${esc(u.username)}</b></td>`+
-      `<td><span class="tag" title="${esc(permSummary(u.permissions))}">${esc(permSummary(u.permissions))}</span></td>`+
-      `<td><span class="tag" title="${esc(authHover(u))}">${esc(authText)}</span></td>`+
-      `<td class="folder" title="${esc(u.home)}">${esc(u.home)}</td>`+
+    const permission=permissionTag(u.permissions||{});
+    tr.innerHTML=`<td><b>${esc(u.username)}</b></td>`+
+      `<td><span class="tag" aria-label="${esc(permission.label)}">${esc(permission.text)}</span></td>`+
+      `<td><span class="tag" aria-label="${esc(authHover(u))}">${esc(authText)}</span></td>`+
       `<td class="act"></td>`;
     const act=tr.lastChild;
-    const mb=document.createElement("button");mb.className="cp";mb.textContent="Manage";mb.onclick=()=>openUser(u);
+    const mb=document.createElement("button");mb.className="cp";mb.textContent="Manage";mb.setAttribute("aria-label","Manage "+u.username);mb.onclick=()=>openUser(u);
     act.append(mb);
+    tr.addEventListener("mouseenter",()=>scheduleUserHoverCard(tr,u));
+    tr.addEventListener("mouseleave",scheduleUserHoverClose);
     tb.appendChild(tr);
   });
 }
