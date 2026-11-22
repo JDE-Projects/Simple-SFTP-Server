@@ -1,4 +1,4 @@
-"""ui_drive fixture for Simple SFTP Server's stale-save scenario.
+"""ui_drive fixture for Simple SFTP Server's stale-save and stale-delete scenarios.
 
 Writes a config with one password user who may only list and download, into
 the throwaway app copy before the app launches, so a permission change made
@@ -41,6 +41,6 @@ config_path = os.path.abspath(os.path.join(app_dir, "server_config.json"))
 with open(config_path, "x", encoding="utf-8") as f:
     json.dump(config, f, indent=2)
 
-print(json.dumps({"user": "fixtureuser", "config_path": config_path}), flush=True)
+print(json.dumps({"user": "fixtureuser", "config_path": config_path, "home": os.path.abspath(home)}), flush=True)
 while True:
     time.sleep(60)
