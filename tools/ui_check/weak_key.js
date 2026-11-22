@@ -52,10 +52,10 @@ export default async function weakKey(helpers) {
     /2 keys, 1 off/.test(await evaluate("document.getElementById('umKeyCount').textContent")));
   check("Save is not blocked by the weak key",
     !(await evaluate("document.getElementById('umSave').disabled")) && !(await evaluate("keyHasProblem()")));
-  await screenshot("weak-key-dark", 0);
+  await screenshot("weak-key-dark");
   await evaluate("document.getElementById('theme-btn').click()");
   check("Manage window switches to light", await evaluate("document.body.classList.contains('light')"));
-  await screenshot("weak-key-light", 0);
+  await screenshot("weak-key-light");
   await evaluate("document.getElementById('theme-btn').click()");
 
   await evaluate(`document.getElementById('umKeys').value = ${JSON.stringify(fixture.weak_paste)}`);
