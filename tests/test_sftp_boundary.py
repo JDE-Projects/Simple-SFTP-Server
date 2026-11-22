@@ -17,6 +17,7 @@ from paramiko.sftp import CMD_DATA, CMD_FSETSTAT, CMD_READ, CMD_SETSTAT, int64
 
 import app.server as server_module
 from app.constants import LOCKOUT_THRESHOLD, MAX_READ_LENGTH
+from app.helpers import fingerprint_sha256
 from app.server import DEFAULT_PERMISSIONS
 from tests.sftp_helpers import authorized_key_line, make_user, sftp_key, sftp_password
 
@@ -104,6 +105,142 @@ def test_key_auth_unauthorized_key_rejected(tmp_path, sftp_server):
 
     with pytest.raises(paramiko.AuthenticationException):
         sftp_key(handle.port, "alice", other_key)
+
+
+def test_key_auth_disabled_key_rejected(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    enabled_key = paramiko.RSAKey.generate(2048)
+    disabled_key = paramiko.RSAKey.generate(2048)
+    user = make_user("alice", home, _perms(), auth="key",
+                     authorized_keys=[authorized_key_line(enabled_key)],
+                     disabled_keys=[authorized_key_line(disabled_key)])
+    handle = sftp_server([user])
+
+    with pytest.raises(paramiko.AuthenticationException):
+        sftp_key(handle.port, "alice", disabled_key)
+
+
+def test_key_auth_enabled_key_connects_beside_disabled_key(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    enabled_key = paramiko.RSAKey.generate(2048)
+    disabled_key = paramiko.RSAKey.generate(2048)
+    user = make_user("alice", home, _perms(), auth="key",
+                     authorized_keys=[authorized_key_line(enabled_key)],
+                     disabled_keys=[authorized_key_line(disabled_key)])
+    handle = sftp_server([user])
+
+    client, sftp = sftp_key(handle.port, "alice", enabled_key)
+    try:
+        assert sftp.listdir(".") == []
+    finally:
+        _close(client, sftp)
+
+
+def _wait_for(check, seconds=5):
+    # The "connected" line is written by the server's connection thread, which
+    # can run a moment after the client finishes opening its session.
+    deadline = time.time() + seconds
+    while time.time() < deadline and not check():
+        time.sleep(0.05)
+    return check()
+
+
+def test_connected_line_names_matched_key_among_several(tmp_path, sftp_server, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    keys = [paramiko.RSAKey.generate(2048) for _ in range(3)]
+    lines = [authorized_key_line(key) + " " + name
+             for key, name in zip(keys, ("desktop", "laptop", "backup"), strict=True)]
+    handle = sftp_server([make_user("alice", home, _perms(), auth="key",
+                                    authorized_keys=lines)])
+    activity = []
+    original_activity = handle.service.activity
+
+    def record_activity(sid, verb, name):
+        activity.append((sid, verb, name))
+        original_activity(sid, verb, name)
+
+    monkeypatch.setattr(handle.service, "activity", record_activity)
+    client, sftp = sftp_key(handle.port, "alice", keys[1])
+    try:
+        expected = 'alice, key "laptop" (ID ' + fingerprint_sha256(keys[1])[7:17] + "…)"
+        assert _wait_for(lambda: ("connected", expected) in [
+            (verb, name) for _sid, verb, name in activity])
+    finally:
+        _close(client, sftp)
+
+
+def test_connected_line_tells_apart_keys_with_same_name(tmp_path, sftp_server, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    first_key = paramiko.RSAKey.generate(2048)
+    second_key = paramiko.RSAKey.generate(2048)
+    lines = [authorized_key_line(key) + " laptop" for key in (first_key, second_key)]
+    handle = sftp_server([make_user("alice", home, _perms(), auth="key",
+                                    authorized_keys=lines)])
+    activity = []
+    original_activity = handle.service.activity
+
+    def record_activity(sid, verb, name):
+        activity.append((sid, verb, name))
+        original_activity(sid, verb, name)
+
+    monkeypatch.setattr(handle.service, "activity", record_activity)
+    client, sftp = sftp_key(handle.port, "alice", second_key)
+    try:
+        expected_id = fingerprint_sha256(second_key)[7:17] + "…"
+        first_id = fingerprint_sha256(first_key)[7:17] + "…"
+        assert _wait_for(lambda: any(verb == "connected" for _sid, verb, _name in activity))
+        connected = [name for _sid, verb, name in activity if verb == "connected"]
+        assert connected == [f'alice, key "laptop" (ID {expected_id})']
+        assert first_id not in connected[0]
+    finally:
+        _close(client, sftp)
+
+
+def test_connected_line_for_key_with_no_name(tmp_path, sftp_server, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    client_key = paramiko.RSAKey.generate(2048)
+    handle = sftp_server([make_user("alice", home, _perms(), auth="key",
+                                    authorized_keys=[authorized_key_line(client_key)])])
+    activity = []
+    original_activity = handle.service.activity
+
+    def record_activity(sid, verb, name):
+        activity.append((sid, verb, name))
+        original_activity(sid, verb, name)
+
+    monkeypatch.setattr(handle.service, "activity", record_activity)
+    client, sftp = sftp_key(handle.port, "alice", client_key)
+    try:
+        key_id = fingerprint_sha256(client_key)[7:17] + "…"
+        assert _wait_for(lambda: ("connected", f"alice, key (no name) (ID {key_id})") in [
+            (verb, name) for _sid, verb, name in activity])
+    finally:
+        _close(client, sftp)
+
+
+def test_connected_line_for_password_names_no_key(tmp_path, sftp_server, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    handle = sftp_server([make_user("alice", home, _perms(), password="correct password")])
+    activity = []
+    original_activity = handle.service.activity
+
+    def record_activity(sid, verb, name):
+        activity.append((sid, verb, name))
+        original_activity(sid, verb, name)
+
+    monkeypatch.setattr(handle.service, "activity", record_activity)
+    client, sftp = sftp_password(handle.port, "alice", "correct password")
+    try:
+        assert _wait_for(lambda: ("connected", "alice, password") in [
+            (verb, name) for _sid, verb, name in activity])
+    finally:
+        _close(client, sftp)
 
 
 def test_key_only_user_rejects_password_auth(tmp_path, sftp_server):
@@ -235,6 +372,59 @@ def test_key_sign_in_records_user_when_session_opens(tmp_path):
     assert iface.username == "alice"
     assert iface.user is user
     assert ("127.0.0.1", "alice") not in service.lockout._fails
+
+
+def test_both_user_password_sign_in_shows_password(tmp_path):
+    client_key = paramiko.RSAKey.generate(2048)
+    key_line = authorized_key_line(client_key) + " laptop"
+    user = make_user("alice", tmp_path, _perms(), auth="both", password="right-pw",
+                     authorized_keys=[key_line])
+    iface = server_module.ServerIface(_AuthService([user]), "127.0.0.1", 1,
+                                      _FakeTransport("alice"))
+
+    assert iface.check_auth_publickey("alice", client_key) == paramiko.AUTH_SUCCESSFUL
+    assert iface.check_auth_password("alice", "right-pw") == paramiko.AUTH_SUCCESSFUL
+    assert iface._finish_sign_in()
+    assert iface.key_line is None
+    assert iface.key_fingerprint is None
+    assert server_module.sign_in_text(iface.username, iface.key_line,
+                                      iface.key_fingerprint) == "alice, password"
+
+
+def test_sign_in_text_cuts_long_key_name():
+    client_key = paramiko.RSAKey.generate(2048)
+    long_name = "x" * 150
+    text = server_module.sign_in_text("alice", authorized_key_line(client_key) + " " + long_name,
+                                      fingerprint_sha256(client_key))
+
+    assert text == ('alice, key "' + "x" * 100 + '" (ID ' +
+                    fingerprint_sha256(client_key)[7:17] + "…)")
+
+
+def test_connected_debug_log_has_no_user_or_key_name(tmp_path, sftp_server, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    client_key = paramiko.RSAKey.generate(2048)
+    key_name = "laptop"
+    handle = sftp_server([make_user("alice", home, _perms(), auth="key",
+                                    authorized_keys=[authorized_key_line(client_key) + " " + key_name])])
+    entries = []
+
+    def record_log(event, detail=None):
+        entries.append((event, detail))
+
+    monkeypatch.setattr(server_module.debug, "_log", record_log)
+    client, sftp = sftp_key(handle.port, "alice", client_key)
+    try:
+        assert _wait_for(lambda: any(e[0] == "client connected" for e in entries))
+        entry = next(entry for entry in entries if entry[0] == "client connected")
+        expected_id = "SHA256:" + fingerprint_sha256(client_key)[7:17] + "..."
+        assert entry == ("client connected", {"ip": "127.0.0.1", "method": "key",
+                                               "key_id": expected_id})
+        assert "alice" not in repr(entry)
+        assert key_name not in repr(entry)
+    finally:
+        _close(client, sftp)
 
 
 def test_session_refused_when_no_sign_in_was_recorded(tmp_path):

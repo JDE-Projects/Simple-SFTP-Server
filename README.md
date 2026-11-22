@@ -24,15 +24,19 @@ If you enjoyed this project and would like to buy me a coffee, check out my [Ko-
   jail so each user only ever sees inside their own folder.
 - Three access modes per user: read-only, read & write, or upload-only
   (a drop box). Deleting and renaming is off unless you allow it.
-- Sign-in by password, public key, or either one. Each user has one public
-  key: picked from a .pub file (PuTTYgen's saved format is converted),
+- Sign-in by password, public key, or either one. Each user can have up to 25
+  public keys, each with a friendly name, for example one per computer. A key
+  can be turned off without removing it, so it stays on the list but cannot
+  sign in until it is turned back on. Keys can be picked from a .pub file
+  (PuTTYgen's saved format is converted),
   pasted, or made with the built-in Ed25519 (default) or RSA-4096 key
   generator.
 - Connection card: LAN address, on-demand public IP, port, and the host-key
   fingerprint, all copyable for first-connection verification.
 - Live panel: connected clients with what each one is doing right now (listing a
   folder, reading file details, transferring), running request counts and bytes
-  moved, in-flight transfers, a recent-activity feed, and locked-out IPs with
+  moved, in-flight transfers, a recent-activity feed (each sign-in shows the
+  user and which key or password they used), and locked-out IPs with
   one-click Unlock.
 - Brute-force lockout: repeated wrong passwords block that account for fifteen
   minutes, with an address-level backstop against password spraying and a
@@ -140,8 +144,10 @@ pipeline from this repo. You can also check the file against the published
 5. For a key user, the safest route is to have them make their own key pair
    and send you only the .pub file: pick it with Choose file... or paste it.
    Or generate an Ed25519 or RSA key pair for them and hand them the private
-   key. A new key replaces the user's current key when you click Save. The
-   generated key files stay on disk even if you then cancel.
+   key. Add keys to the user's list, rename them, remove them, or turn one off
+   without removing it. An off key stays on the list but cannot sign in until
+   turned back on. Those changes take effect when you click Save. The generated
+   key files stay on disk even if you then cancel.
 
 Uploaded files keep their original modified date when the client asks for it,
 as WinSCP does with its Preserve timestamp option (on by default). The server
@@ -201,7 +207,8 @@ separately from Windows Defender Firewall.
   that file as private and do not commit it.
 - The optional debug log is off by default; when on it writes
   `Debug_Log_MMDDYYYY_HHMMSS.txt` next to the app. It records event names,
-  outcomes, IP addresses, and the kind of each error, never usernames, typed
+  outcomes, IP addresses, how each client signed in (password, or the short ID
+  of the key), and the kind of each error, never usernames, key names, typed
   text, file paths, or error messages. A redaction pass on every entry is a
   second guard against passwords and key material. Each file stops at 5 MiB and
   logging continues in a new file. The app keeps the current file plus up to 3

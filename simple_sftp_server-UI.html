@@ -187,6 +187,23 @@
   .chk input{width:auto;}
   .errline{font-size:11px;color:var(--red);margin-top:4px;min-height:14px;}
   .key-line{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .key-list{display:flex;flex-direction:column;gap:6px;max-height:190px;overflow:auto;margin-top:2px;}
+  .key-row{display:flex;align-items:center;gap:7px;min-width:0;padding:6px 7px;background:var(--panel-2);border:1px solid var(--border);border-radius:7px;}
+  .key-row .key-type,.key-row .key-fingerprint{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--text-faint);flex:0 0 auto;}
+  .key-row .key-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:none;border:0;padding:0;color:var(--text);text-align:left;cursor:pointer;flex:1 1 auto;}
+  .key-row .key-name:hover,.key-row .key-name:focus-visible{color:var(--accent);}
+  .key-row .key-name.empty{color:var(--text-dim);}
+  .key-row .key-rename{min-width:0;flex:1 1 auto;}
+  .key-row .key-toggle{flex:0 0 auto;}
+  .key-row .key-toggle .switch{width:28px;height:15px;}
+  .key-row .key-toggle .switch::after{width:11px;height:11px;}
+  .key-row .key-toggle input:checked + .switch::after{left:14px;}
+  .key-row .key-toggle{gap:5px;}
+  .key-row .key-state{font-size:11px;color:var(--text-dim);min-width:22px;}
+  .key-row.key-off .key-type,.key-row.key-off .key-name,.key-row.key-off .key-fingerprint{opacity:.45;}
+  .key-row .key-remove{flex:0 0 auto;}
+  .key-note{font-size:10px;color:var(--text-dim);margin:-2px 0 1px;}
+  .errline.info{color:var(--text-dim);}
   .seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--border-2);border-radius:var(--radius-sm);padding:3px;gap:2px;}
   .seg button{padding:5px 12px;font-weight:500;background:transparent;border:none;color:var(--text-dim);border-radius:6px;}
   .seg button.on{background:linear-gradient(180deg,var(--accent),var(--accent-2));color:var(--btn-text);}
@@ -356,12 +373,12 @@
       <button id="umGen" class="btn-ghost btn-sm" style="margin:0;white-space:nowrap">Generate</button>
     </div>
     <div class="meta" id="umPwHint" style="color:var(--text-dim);margin-top:5px">Stored as a one-way hash. It is not shown again after you save.</div></div></div>
-  <div id="umKeyWrap" class="row" style="display:none"><div class="f" style="min-width:0"><label class="field-label">Public key</label>
-    <div id="umKeyCurrent" class="meta key-line">No key yet.</div>
-    <div id="umKeyLegacyNote" class="meta" style="display:none;margin-top:4px;color:var(--text-dim)">From an older version. All of these can sign in. Choose, paste, or generate one key to replace them.</div>
-    <div id="umKeyPending" class="meta key-line" style="display:none;margin-top:4px;color:var(--accent)"></div>
-    <div style="margin-top:6px;display:flex;gap:8px"><button id="umKeyFile" class="btn-ghost btn-sm">Choose file...</button><button id="umKeygen" class="btn-ghost btn-sm">Generate a key pair for this user</button></div>
-    <textarea id="umKeys" class="mono" rows="2" placeholder="Or paste a public key (ssh-ed25519 AAAA... name@computer)" style="margin-top:6px"></textarea>
+  <div id="umKeyWrap" class="row" style="display:none"><div class="f" style="min-width:0"><label class="field-label">Public keys <span id="umKeyCount" class="meta" style="color:var(--text-faint)"></span></label>
+    <div id="umKeyList" class="key-list"><div class="meta" style="color:var(--text-dim)">No keys yet.</div></div>
+    <textarea id="umKeys" class="mono" rows="2" placeholder="Paste one or more public keys (ssh-ed25519 AAAA... name@computer)" style="margin-top:6px"></textarea>
+    <label class="field-label" style="margin-top:6px">Friendly Name (optional)</label><input id="umKeyName" maxlength="100" placeholder="name@computer">
+    <div id="umKeyNameHint" class="meta" style="display:none;color:var(--text-dim);margin-top:4px">Each key keeps its own name. Rename them in the list after adding.</div>
+    <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap"><button id="umKeyAdd" class="btn-ghost btn-sm">Add</button><button id="umKeyFile" class="btn-ghost btn-sm">Choose file...</button><button id="umKeygen" class="btn-ghost btn-sm">Generate a key pair for this user</button></div>
     <div id="umKeyErr" class="errline"></div></div></div>
   <div class="row"><div class="f"><label class="field-label">Permissions</label>
     <div class="perm-grid">
@@ -385,10 +402,10 @@
   <div class="row"><div class="f"><label class="field-label">Type</label><select id="kgType"></select></div>
     <div class="f" style="flex:2 1 auto"><label class="field-label">Save private key as</label>
       <div style="display:flex;gap:8px"><input id="kgPath" class="mono" style="flex:1 1 auto" placeholder="C:\Users\you\.ssh\id_ed25519"><button id="kgBrowse" class="btn-ghost btn-sm" style="margin:0;white-space:nowrap">Browse...</button></div>
-      <div class="meta" style="color:var(--text-dim);margin-top:5px">The public key is saved next to it as the same name + .pub. It replaces this user's key when you click Save on the user. The key files stay on disk even if you then cancel.</div></div></div>
+      <div class="meta" style="color:var(--text-dim);margin-top:5px">The public key is saved next to it as the same name + .pub. It is added to this user's keys when you click Add or Save on the user. The key files stay on disk even if you then cancel.</div></div></div>
   <div class="row"><div class="f"><label class="field-label">Passphrase (optional)</label><input id="kgPass" type="password"></div></div>
   <div id="kgResult" style="display:none"><div id="kgSaved" class="meta" style="color:var(--green);margin-bottom:6px"></div>
-    <label class="field-label">Public key (replaces the user's key on Save)</label><pre class="pub" id="kgPub"></pre>
+    <label class="field-label">Public key (added to the user's keys on Add or Save)</label><pre class="pub" id="kgPub"></pre>
     <div style="margin:8px 0"><button id="kgCopy" class="btn-ghost btn-sm">Copy public key</button></div></div>
   <div class="modal-actions"><button id="kgClose" class="btn-ghost">Close</button><button id="kgGo" class="btn-primary">Generate</button></div>
 </div></div>
@@ -434,7 +451,8 @@
 <script>
 const $=id=>document.getElementById(id);
 let API=null, meta=null, running=false, isQuick=false;
-let users=[], editingOriginal=null, editingUser=null, authMode="password", pendingKey=null;
+let users=[], editingOriginal=null, editingUser=null, authMode="password";
+let workingKeys=[], keySession=0, keyBusy=false, friendlyNameEdited=false, keyInputTimer=null;
 let cur=null, curAt=0, pwShown=false;
 let pollTimer=null, tickTimer=null;
 let umPwVisible=false;
@@ -472,6 +490,7 @@ function openModal(id,opts){
   }
 }
 function closeModal(id){
+  if(id==="userModal")keySession++;
   const el=$(id);
   el.classList.remove("show");
   const idx=modalStack.map(m=>m.id).lastIndexOf(id);
@@ -525,17 +544,12 @@ function permissionTag(p){
 const AUTHLBL={password:"PW",key:"Key",both:"PW or Key"};
 // Full sign-in wording for the Users table's accessible label and hover card.
 function authHover(u){
-  const count=Array.isArray(u.keys)?u.keys.length:0;
-  if(count>1){
-    const legacy=" ("+count+" keys from an older version)";
-    if(u.auth==="password") return "Signs in with a password";
-    if(u.auth==="key") return "Signs in with a public key"+legacy;
-    return "Signs in with a password or a public key"+legacy;
-  }
-  const key=u.key?" ("+u.key.type+(u.key.comment?", "+u.key.comment:"")+")":" (no key on file)";
+  const count=Number.isInteger(u.key_count)?u.key_count:(Array.isArray(u.keys)?u.keys.filter(k=>k.valid!==false&&k.enabled!==false).length:0);
+  const offCount=Number.isInteger(u.off_count)?u.off_count:(Array.isArray(u.keys)?u.keys.filter(k=>k.valid!==false&&k.enabled===false).length:0);
+  const keys=". Keys: "+(count||offCount?count+" on"+(offCount?", "+offCount+" off":""):"none");
   if(u.auth==="password") return "Signs in with a password";
-  if(u.auth==="key") return "Signs in with a public key"+key;
-  return "Signs in with a password or a public key"+key;
+  if(u.auth==="key") return "Signs in with a public key"+keys;
+  return "Signs in with a password or a public key"+keys;
 }
 
 function keyDescription(key,shortFingerprint){
@@ -549,37 +563,48 @@ function keyDescription(key,shortFingerprint){
   }
   return text;
 }
-function setKeyLine(target,prefix,key){
-  const el=typeof target==="string"?$(target):target, full=keyDescription(key,false), shown=keyDescription(key,true);
-  el.textContent=prefix+shown;
-  el.title=prefix+full;
+function keyIdentity(line){const parts=String(line||"").trim().split(/\s+/);return parts.length>=2?parts[0]+" "+parts[1]:"";}
+function keyFromResult(result){return {line:result.key,valid:true,enabled:true,type:result.described.type,comment:result.described.comment||"",fingerprint:result.described.fingerprint||"",name_problem:null};}
+function setKeyMessage(message,info){const el=$("umKeyErr");el.textContent=message||"";el.classList.toggle("info",!!info);}
+function activeKeySession(token){return token===keySession&&$("userModal").classList.contains("show");}
+function setKeyBusy(on){keyBusy=on;$("umKeyAdd").disabled=on;$("umSave").disabled=on;}
+function keyHasProblem(){return workingKeys.some(key=>!key.valid||key.name_problem);}
+function renderKeyList(){
+  const list=$("umKeyList");list.replaceChildren();
+  const offCount=workingKeys.filter(key=>key.enabled===false).length;
+  $("umKeyCount").textContent=workingKeys.length?workingKeys.length+(workingKeys.length===1?" key":" keys")+(offCount?", "+offCount+" off":"")+" (up to 25)":"";
+  if(!workingKeys.length){const empty=document.createElement("div");empty.className="meta";empty.style.color="var(--text-dim)";empty.textContent="No keys yet.";list.append(empty);return;}
+  workingKeys.forEach((key,index)=>{
+    const wrap=document.createElement("div");
+    const row=document.createElement("div");row.className="key-row"+(key.enabled===false?" key-off":"");row.title=key.valid?keyDescription(key,false):"Not a valid key";
+    if(!key.valid){const bad=document.createElement("span");bad.className="meta";bad.style.color="var(--red)";bad.textContent="Not a valid key";row.append(bad);}
+    else{
+      const type=document.createElement("span");type.className="key-type";type.textContent=key.type;row.append(type);
+      const name=document.createElement("button");name.type="button";name.className="key-name"+(key.comment?"":" empty");name.title="Click to rename";name.textContent=key.comment||"(no name)";name.onclick=()=>startRenameKey(index);row.append(name);
+      const fingerprint=document.createElement("span");fingerprint.className="key-fingerprint";fingerprint.textContent="ID "+keyDescription({fingerprint:key.fingerprint},true).replace("SHA256:","");fingerprint.title="Key ID (fingerprint): "+key.fingerprint;row.append(fingerprint);
+      const toggle=document.createElement("label");toggle.className="toggle key-toggle";toggle.setAttribute("aria-label","Key "+(key.enabled===false?"off":"on")+": "+(key.comment||"(no name)"));
+      const input=document.createElement("input");input.type="checkbox";input.checked=key.enabled!==false;input.setAttribute("aria-label",toggle.getAttribute("aria-label"));input.onchange=()=>{key.enabled=input.checked;renderKeyList();};
+      const switchEl=document.createElement("span");switchEl.className="switch";
+      const state=document.createElement("span");state.className="key-state";state.textContent=key.enabled===false?"Off":"On";
+      toggle.title=key.enabled===false?"Off: this key cannot sign in. Turn it on to allow it.":"On: this key can sign in. Turn it off to block it without removing it.";
+      toggle.append(input,switchEl,state);row.append(toggle);
+    }
+    const remove=document.createElement("button");remove.type="button";remove.className="btn-ghost btn-sm key-remove";remove.textContent="Remove";remove.onclick=()=>{workingKeys.splice(index,1);renderKeyList();};row.append(remove);wrap.append(row);
+    if(key.name_problem){const note=document.createElement("div");note.className="key-note";note.textContent="Rename this key: its name is too long or has hidden characters.";wrap.append(note);}
+    list.append(wrap);
+  });
 }
-function setCurrentKeys(keys){
-  const current=$("umKeyCurrent"), note=$("umKeyLegacyNote");
-  current.replaceChildren();
-  current.title="";
-  note.style.display="none";
-  if(keys.length>1){
-    current.classList.remove("key-line");
-    keys.forEach(key=>{
-      const line=document.createElement("div");
-      line.className="key-line";
-      setKeyLine(line,"",key);
-      current.append(line);
-    });
-    note.style.display="block";
-  }else{
-    current.classList.add("key-line");
-    if(keys[0])setKeyLine(current,"",keys[0]);
-    else current.textContent="No key yet.";
-  }
-}
-function setPendingKey(key,described){
-  pendingKey={key:key,described:described};
-  const legacy=editingUser&&Array.isArray(editingUser.keys)&&editingUser.keys.length>1;
-  setKeyLine("umKeyPending",legacy?"New key, replaces all of these on Save: ":"New key, replaces the current one on Save: ",described);
-  $("umKeyPending").style.display="block";
-  $("umKeyErr").textContent="";
+function composeKeyName(line,name){const parts=String(line).trim().split(/\s+/,3);return parts[0]+" "+parts[1]+(name.trim()?" "+name.trim():"");}
+async function startRenameKey(index){
+  const key=workingKeys[index];if(!key||!key.valid||keyBusy)return;
+  const name=$("umKeyList").querySelectorAll(".key-name")[workingKeys.slice(0,index+1).filter(k=>k.valid).length-1];
+  const input=document.createElement("input");input.className="key-rename";input.maxLength=100;input.value=key.comment||"";input.title="";
+  name.replaceWith(input);input.focus();input.select();let done=false;
+  const cancel=()=>{if(done)return;done=true;renderKeyList();};
+  // Busy while the rename is checked, so a Save clicked mid-rename cannot
+  // send the old name. The row is found again by key data in case it moved.
+  const commit=async()=>{if(done)return;done=true;const token=keySession;const line=composeKeyName(key.line,input.value);setKeyBusy(true);let r;try{r=await API.check_public_key(line);}finally{if(activeKeySession(token))setKeyBusy(false);}if(!activeKeySession(token))return;const at=workingKeys.findIndex(k=>keyIdentity(k.line)===keyIdentity(key.line));if(!r.ok||!r.keys||r.keys.length!==1||at<0){setKeyMessage(r.error||"Could not read that public key.");renderKeyList();return;}workingKeys[at]={...keyFromResult(r.keys[0]),enabled:key.enabled!==false};renderKeyList();if(r.keys[0].note)setKeyMessage(r.keys[0].note,true);};
+  input.addEventListener("keydown",event=>{if(event.key==="Enter"){event.preventDefault();commit();}else if(event.key==="Escape"){event.preventDefault();event.stopPropagation();cancel();}});input.addEventListener("blur",commit);
 }
 
 window.addEventListener("pywebviewready",init);
@@ -629,9 +654,12 @@ async function init(){
   document.querySelectorAll("#umAuth button").forEach(b=>b.onclick=()=>setAuth(b.dataset.v));
   $("umSave").onclick=onSaveUser;
   $("umDelete").onclick=()=>{ if(editingUser) confirmDeleteUser(editingUser); };
+  $("umKeyAdd").onclick=onAddKeys;
   $("umKeyFile").onclick=onPickKeyFile;
   $("umKeygen").onclick=openKeygen;
-  $("umKeys").addEventListener("change",onCheckPublicKey);
+  $("umKeys").addEventListener("input",()=>{clearTimeout(keyInputTimer);keyInputTimer=setTimeout(updateFriendlyName,250);});
+  $("umKeys").addEventListener("blur",updateFriendlyName);
+  $("umKeyName").addEventListener("input",()=>{friendlyNameEdited=true;});
 
   $("kgBrowse").onclick=async()=>{const sug=$("kgType").value.startsWith("Ed25519")?"id_ed25519":"id_rsa";const p=await API.browse_save_key(sug);if(p)$("kgPath").value=p;};
   $("kgClose").onclick=()=>closeModal("keygenModal");
@@ -1015,6 +1043,7 @@ function setPermissions(p){
 }
 
 function openUser(u){
+  const token=++keySession;
   editingOriginal=u?u.username:null;
   editingUser=u||null;
   $("umTitle").textContent=u?"Manage user":"Add User";
@@ -1029,14 +1058,11 @@ function openUser(u){
   $("eyeIconShow").style.display="block";
   $("eyeIconHide").style.display="none";
   $("umPw").placeholder=u&&u.has_password?"(unchanged)":"Generate or type a password";
-  pendingKey=null;
   $("umKeys").value="";
-  $("umKeyErr").textContent="";
-  $("umKeyPending").textContent="";
-  $("umKeyPending").title="";
-  $("umKeyPending").style.display="none";
-  const keys=u&&Array.isArray(u.keys)&&u.keys.length?u.keys:(u&&u.key?[u.key]:[]);
-  setCurrentKeys(keys);
+  $("umKeyName").value="";$("umKeyName").disabled=false;$("umKeyNameHint").style.display="none";
+  friendlyNameEdited=false;setKeyMessage("");setKeyBusy(false);
+  workingKeys=u&&Array.isArray(u.keys)?u.keys.map(key=>({...key})):[];
+  renderKeyList();
   $("umPwHint").textContent=u?"Leave blank to keep the current password.":"Stored as a one-way hash. Not shown again after saving.";
   // permissions: default to list-only for new users
   if(u&&u.permissions){
@@ -1049,17 +1075,55 @@ function openUser(u){
 }
 
 async function onPickKeyFile(){
+  const token=keySession;
   const r=await API.pick_key_file();
-  if(r.ok){setPendingKey(r.key,r.described);return;}
-  if(r.error)$("umKeyErr").textContent=r.error;
+  if(!activeKeySession(token))return;
+  if(!r.ok){if(r.error)setKeyMessage(r.error);return;}
+  if(r.keys.length===1){$("umKeys").value=r.keys[0].key;$("umKeyName").value=r.keys[0].described.comment||"";$("umKeyName").disabled=false;$("umKeyNameHint").style.display="none";friendlyNameEdited=false;return;}
+  const added=appendKeyResults(r.keys);
+  if(added.limit){setKeyMessage("A user can have at most 25 keys. Remove one before adding another.");return;}
+  if(added.added)renderKeyList();
+  setKeyMessage("Added "+added.added+" key"+(added.added===1?"":"s")+" from the file."+(added.duplicates?" "+added.duplicates+" duplicate"+(added.duplicates===1?" was":"s were")+" skipped.":""),true);
 }
-async function onCheckPublicKey(){
+async function updateFriendlyName(){
   const text=$("umKeys").value;
-  if(!text.trim())return;
+  if(!text.trim()){$("umKeyName").disabled=false;$("umKeyNameHint").style.display="none";return;}
+  const token=keySession;
   const r=await API.check_public_key(text);
-  if(r.ok){setPendingKey(r.key,r.described);$("umKeys").value="";return;}
-  $("umKeyErr").textContent=r.error||"Could not read that public key.";
+  if(!activeKeySession(token)||!r.ok||$("umKeys").value!==text)return;
+  const many=r.keys.length>1;
+  $("umKeyName").disabled=many;$("umKeyNameHint").style.display=many?"block":"none";
+  if(!many&&!friendlyNameEdited)$("umKeyName").value=r.keys[0].described.comment||"";
 }
+
+function appendKeyResults(results){
+  const existing=new Set(workingKeys.map(key=>keyIdentity(key.line)));
+  const incoming=[];
+  for(const result of results){const identity=keyIdentity(result.key);if(!existing.has(identity)&&!incoming.includes(identity))incoming.push(identity);}
+  if(incoming.length&&workingKeys.length+incoming.length>25)return {limit:true,added:0,duplicates:0};
+  let added=0,duplicates=0,duplicate=null;
+  for(const result of results){const identity=keyIdentity(result.key);if(workingKeys.some(key=>keyIdentity(key.line)===identity)){duplicates++;duplicate=duplicate||result;continue;}workingKeys.push(keyFromResult(result));added++;}
+  return {added,duplicates,duplicate};
+}
+async function addPastedKeys(){
+  const text=$("umKeys").value.trim();if(!text)return true;
+  const token=keySession;const checked=await API.check_public_key(text);
+  if(!activeKeySession(token))return false;
+  if(!checked.ok){setKeyMessage(checked.error||"Could not read that public key.");return false;}
+  let results=checked.keys;
+  // An untouched, still-empty name box keeps the key's own comment: the
+  // box may not have been filled yet when Add or Save was clicked.
+  const typedName=$("umKeyName").value;
+  if(results.length===1){const line=composeKeyName(results[0].key,friendlyNameEdited||typedName.trim()?typedName:(results[0].described.comment||""));const named=await API.check_public_key(line);if(!activeKeySession(token))return false;if(!named.ok||!named.keys||named.keys.length!==1){setKeyMessage(named.error||"Could not read that public key.");return false;}results=named.keys;}
+  const appended=appendKeyResults(results);
+  if(appended.limit){setKeyMessage("A user can have at most 25 keys. Remove one before adding another.");return false;}
+  if(appended.added)renderKeyList();
+  if(appended.duplicates){const name=appended.duplicate.described.comment||"(no name)";setKeyMessage("Already on the list: "+name+".",true);}
+  else if(results.find(result=>result.note))setKeyMessage(results.find(result=>result.note).note,true);else setKeyMessage("");
+  $("umKeys").value="";$("umKeyName").value="";$("umKeyName").disabled=false;$("umKeyNameHint").style.display="none";friendlyNameEdited=false;
+  return true;
+}
+async function onAddKeys(){if(keyBusy)return;setKeyBusy(true);try{await addPastedKeys();}finally{if($("userModal").classList.contains("show"))setKeyBusy(false);}}
 
 async function onValidateUser(){
   const v=$("umUser").value.trim();if(!v){$("umUserErr").textContent="";return;}
@@ -1084,34 +1148,57 @@ function disconnectWarning(username){
   return s;
 }
 
+function sameKeySet(before,after){
+  const left=new Set((before||[]).filter(key=>key.valid!==false&&key.enabled!==false).map(key=>keyIdentity(key.line)));
+  const right=new Set((after||[]).filter(key=>key.enabled!==false).map(key=>keyIdentity(key.line)));
+  return left.size===right.size&&[...left].every(key=>right.has(key));
+}
+function changesAccess(p){
+  if(!editingUser)return true;
+  if(editingUser.username!==p.username||editingUser.home!==p.home||editingUser.auth!==p.auth||p.password)return true;
+  if(PERM_KEYS.some(key=>!!(editingUser.permissions||{})[key]!==!!p.permissions[key]))return true;
+  const oldKeys=(editingUser.auth==="key"||editingUser.auth==="both")?editingUser.keys:[];
+  const newKeys=(p.auth==="key"||p.auth==="both")?workingKeys:[];
+  return !sameKeySet(oldKeys,newKeys);
+}
+
 async function onSaveUser(){
+  if(keyBusy)return;
+  setKeyBusy(true);
   const perms=getPermissions();
-  if(!Object.values(perms).some(Boolean)){$("umPermErr").textContent="Grant the user at least one permission.";return;}
+  if(!Object.values(perms).some(Boolean)){$("umPermErr").textContent="Grant the user at least one permission.";setKeyBusy(false);return;}
   $("umPermErr").textContent="";
-  const pastedKey=$("umKeys").value.trim();
+  if(!await addPastedKeys()){if($("userModal").classList.contains("show"))setKeyBusy(false);return;}
+  if(workingKeys.some(key=>!key.valid)){setKeyMessage("Remove the key marked Not a valid key before saving.");setKeyBusy(false);return;}
+  if(workingKeys.some(key=>key.name_problem)){setKeyMessage("Rename or remove the key whose name is too long or has hidden characters before saving.");setKeyBusy(false);return;}
   const p={username:$("umUser").value.trim(),permissions:perms,
     home:$("umHome").value.trim(),auth:authMode,password:$("umPw").value,
-    public_key:pastedKey||(pendingKey?pendingKey.key:"")};
-  const warn=editingOriginal?disconnectWarning(editingOriginal):"";
-  if(warn){
-    $("cfTitle").textContent="Disconnect active user?";
-    $("cfText").textContent=warn+" They can reconnect right away with the new settings.\n\nSave the changes anyway?";
+    authorized_keys:workingKeys.filter(key=>key.enabled!==false).map(key=>key.line),
+    disabled_keys:workingKeys.filter(key=>key.enabled===false).map(key=>key.line)};
+  if((authMode==="key"||authMode==="both")&&!p.authorized_keys.length){setKeyMessage(p.disabled_keys.length?"Turn on at least one key (or switch to password auth).":"Add at least one public key (or switch to password auth).");setKeyBusy(false);return;}
+  const warn=editingOriginal&&changesAccess(p)?disconnectWarning(editingOriginal):"";
+  // Password-only sign-in deletes the user's keys on save, so say so first.
+  const keyLoss=authMode==="password"&&workingKeys.length
+    ?"Password only sign-in deletes the "+(workingKeys.length===1?"public key":workingKeys.length+" public keys")+" on this user's list. Switching back to a key later will not bring "+(workingKeys.length===1?"it":"them")+" back.":"";
+  if(warn||keyLoss){
+    $("cfTitle").textContent=keyLoss?"Delete saved keys?":"Disconnect active user?";
+    $("cfText").textContent=[keyLoss,warn?warn+" They can reconnect right away with the new settings.":""].filter(Boolean).join("\n\n")+"\n\nSave the changes anyway?";
     $("cfFolderRow").style.display="none";
     $("cfSimpleRow").style.display="flex";
     $("cfCancel").textContent="Cancel";
     $("cfOk").textContent="Save anyway";
-    $("cfCancel").onclick=()=>closeModal("confirmModal");
-    $("cfOk").onclick=()=>{ closeModal("confirmModal"); doSaveUser(p); };
+    $("cfCancel").onclick=()=>{closeModal("confirmModal");setKeyBusy(false);};
+    $("cfOk").onclick=()=>{ closeModal("confirmModal"); doSaveUser(p,keySession); };
     openModal("confirmModal",{focus:"cfCancel"});
     return;
   }
-  doSaveUser(p);
+  doSaveUser(p,keySession);
 }
 
-async function doSaveUser(p){
-  $("umSave").disabled=true;
+async function doSaveUser(p,token){
   const r=await API.save_user(p,editingOriginal);
-  $("umSave").disabled=false;
+  if(!activeKeySession(token))return;
+  setKeyBusy(false);
   if(!r.ok){toast(r.error||"Could not save.",true);return;}
   users=r.users;renderUsers();
   closeModal("userModal");
@@ -1158,10 +1245,11 @@ async function keygenSuccess(r){
   $("kgPub").textContent=r.public;
   $("kgSaved").textContent="Saved private key to "+r.private_path+" (and .pub beside it).";
   $("kgResult").style.display="block";
-  const checked=await API.check_public_key(r.public);
-  if(!checked.ok){$("umKeyErr").textContent=checked.error||"Could not read the generated public key.";return;}
-  setPendingKey(checked.key,checked.described);
-  toast("Key pair created. Click Save on the user to make it this user's key.");
+  const token=keySession,checked=await API.check_public_key(r.public);
+  if(!activeKeySession(token))return;
+  if(!checked.ok||!checked.keys||checked.keys.length!==1){setKeyMessage(checked.error||"Could not read the generated public key.");return;}
+  $("umKeys").value=checked.keys[0].key;$("umKeyName").value=checked.keys[0].described.comment||"";$("umKeyName").disabled=false;$("umKeyNameHint").style.display="none";friendlyNameEdited=false;
+  toast("Key pair created. Click Add, or Save the user, to add it to this user's keys.");
 }
 async function onKeygen(){
   const path=$("kgPath").value.trim();

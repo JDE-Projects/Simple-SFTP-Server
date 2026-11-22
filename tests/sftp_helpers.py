@@ -64,7 +64,7 @@ def make_host_key(dir_path):
 
 
 def make_user(username, home, permissions, auth="password", password=None,
-              authorized_keys=None):
+              authorized_keys=None, disabled_keys=None):
     """Build a user record in the shape SFTPService/ServerIface expect."""
     user = {
         "username": username,
@@ -76,6 +76,8 @@ def make_user(username, home, permissions, auth="password", password=None,
         user["password_hash"] = hash_password(password)
     if authorized_keys is not None:
         user["authorized_keys"] = list(authorized_keys)
+    if disabled_keys is not None:
+        user["disabled_keys"] = list(disabled_keys)
     return user
 
 

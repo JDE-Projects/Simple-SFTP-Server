@@ -336,7 +336,7 @@ def test_save_user_rejects_malformed_authorized_key(tmp_path, monkeypatch):
 
     r = api.save_user({
         "username": "alice", "home": str(home), "permissions": _perms(),
-        "auth": "key", "public_key": "ssh-rsa not-real-base64!!!",
+        "auth": "key", "authorized_keys": ["ssh-rsa not-real-base64!!!"],
     })
     assert r["ok"] is False
 
@@ -344,7 +344,7 @@ def test_save_user_rejects_malformed_authorized_key(tmp_path, monkeypatch):
     assert cfg.get("users", []) == []
 
 
-def test_save_user_refuses_several_keys(tmp_path, monkeypatch):
+def test_save_user_accepts_several_keys(tmp_path, monkeypatch):
     api = _api(tmp_path, monkeypatch)
     home = tmp_path / "alice"
     home.mkdir()
@@ -352,14 +352,11 @@ def test_save_user_refuses_several_keys(tmp_path, monkeypatch):
     assert valid["ok"] is True
     result = api.save_user({
         "username": "alice", "home": str(home), "permissions": _perms(),
-        "auth": "key", "public_key": valid["public"] + "\n" + valid["public"],
+        "auth": "key", "authorized_keys": [valid["public"], valid["public"]],
     })
 
-    assert result == {
-        "ok": False,
-        "error": "This holds more than one key. This app uses one key per user.",
-    }
-    assert api._load_config().get("users", []) == []
+    assert result["ok"] is True
+    assert api._load_config()["users"][0]["authorized_keys"] == [valid["public"]]
 
 
 def test_save_user_rejects_invalid_key_without_changing_existing_keys(tmp_path, monkeypatch):
@@ -373,19 +370,19 @@ def test_save_user_rejects_invalid_key_without_changing_existing_keys(tmp_path, 
     original_keys = [first["public"]]
     assert api.save_user({
         "username": "alice", "home": str(home), "permissions": _perms(),
-        "auth": "key", "public_key": first["public"],
+        "auth": "key", "authorized_keys": [first["public"]],
     })["ok"] is True
 
     result = api.save_user({
         "username": "alice", "home": str(home), "permissions": _perms(),
-        "auth": "key", "public_key": "not-a-public-key",
+        "auth": "key", "authorized_keys": ["not-a-public-key"],
     })
 
     assert result["ok"] is False
     assert api._load_config()["users"][0]["authorized_keys"] == original_keys
 
 
-def test_save_user_replaces_stored_key(tmp_path, monkeypatch):
+def test_save_user_replaces_stored_key_list(tmp_path, monkeypatch):
     api = _api(tmp_path, monkeypatch)
     home = tmp_path / "alice"
     home.mkdir()
@@ -395,11 +392,11 @@ def test_save_user_replaces_stored_key(tmp_path, monkeypatch):
     assert second["ok"] is True
     assert api.save_user({
         "username": "alice", "home": str(home), "permissions": _perms(),
-        "auth": "key", "public_key": first["public"],
+        "auth": "key", "authorized_keys": [first["public"]],
     })["ok"] is True
     result = api.save_user({
         "username": "alice", "home": str(home), "permissions": _perms(),
-        "auth": "key", "public_key": second["public"],
+        "auth": "key", "authorized_keys": [second["public"]],
     }, original="alice")
 
     assert result["ok"] is True
@@ -416,7 +413,7 @@ def test_save_user_accepts_generated_public_key(tmp_path, monkeypatch):
 
     r = api.save_user({
         "username": "alice", "home": str(home), "permissions": _perms(),
-        "auth": "key", "public_key": keygen_result["public"],
+        "auth": "key", "authorized_keys": [keygen_result["public"]],
     })
     assert r["ok"] is True
 
