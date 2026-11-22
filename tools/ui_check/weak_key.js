@@ -86,13 +86,16 @@ export default async function weakKey(helpers) {
     const wrap = document.getElementById('umKeyList').children[0];
     const row = wrap.querySelector('.key-row'), note = wrap.querySelector('.key-note');
     const label = document.querySelector('#umKeyWrap .field-label');
+    const addLabel = document.querySelector('#umKeyAddWrap .field-label');
     const ta = document.getElementById('umKeys');
-    const fn = ta.nextElementSibling;
+    const actions = document.getElementById('umKeyAdd').parentElement;
     return { scrollTop: card.scrollTop, titleGap: Math.round(titleTop - cardTop),
-      labelToRow: Math.round(r(row).top - r(label).bottom),
+      labelToBox: Math.round(r(wrap).top - r(label).bottom),
+      noteInBox: r(note).bottom <= r(wrap).bottom - 1 && r(note).left >= r(wrap).left,
       rowToNote: Math.round(r(note).top - r(row).bottom),
-      noteToPaste: Math.round(r(ta).top - r(note).bottom),
-      pasteToName: Math.round(r(fn).top - r(ta).bottom),
+      boxToAddLabel: Math.round(r(addLabel).top - r(wrap).bottom),
+      addLabelToPaste: Math.round(r(ta).top - r(addLabel).bottom),
+      pasteToActions: Math.round(r(actions).top - r(ta).bottom),
       noteTextVsKeyText: (() => { const range = document.createRange(); range.selectNodeContents(note);
         return Math.round(range.getBoundingClientRect().left - r(row.querySelector('.key-type')).left); })() };
   })()`;
@@ -100,10 +103,10 @@ export default async function weakKey(helpers) {
   const m = await evaluate(measure);
   const detail = JSON.stringify(m);
   check("window scrolled to the top shows the title's normal gap", m.scrollTop === 0 && m.titleGap >= 18, detail);
-  check("note sits 4px below its key, not touching it", m.rowToNote === 4, detail);
+  check("note sits inside its key's box, 4px below the key line", m.noteInBox && m.rowToNote === 4, detail);
   check("note text lines up with the text inside the key box", Math.abs(m.noteTextVsKeyText) <= 1, detail);
-  check("6px spacing: label to key, note to paste box, paste box to next label",
-    m.labelToRow === 6 && m.noteToPaste === 6 && m.pasteToName === 6, detail);
+  check("key list and Add a key spacing follows the section rule",
+    m.labelToBox === 6 && m.boxToAddLabel === 16 && m.addLabelToPaste === 6 && m.pasteToActions === 6, detail);
   await screenshot("weak-key-only", 0);
   await click("#umSave");
   let asked = false;

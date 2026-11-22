@@ -53,7 +53,7 @@
   .gh-link{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--accent);cursor:pointer;text-decoration:none;}
   .gh-link:hover{text-decoration:underline;}
   .head-right{display:flex;align-items:center;gap:12px;flex:0 0 auto;}
-  .field-label{display:block;font-size:10.5px;color:var(--text-dim);margin-bottom:4px;}
+  .field-label{display:block;font-size:10.5px;color:var(--text-dim);margin-bottom:6px;}
   input,select,textarea{font-family:inherit;font-size:12.5px;color:var(--text);background:var(--panel-2);border:1px solid var(--border-2);
     border-radius:var(--radius-sm);padding:7px 10px;outline:none;transition:border-color .15s,box-shadow .15s;}
   textarea{resize:vertical;width:100%;line-height:1.45;}
@@ -180,18 +180,25 @@
   .card{width:560px;max-width:92%;max-height:86vh;overflow:auto;background:linear-gradient(180deg,var(--panel),var(--bg-2));
     border:1px solid var(--border-2);border-radius:var(--radius);box-shadow:0 20px 60px rgba(0,0,0,.5);padding:20px 22px;}
   .card h3{margin:0 0 14px;font-size:16px;}
-  .card .row{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:flex-end;}
+  /* spacing rule: label 6px above its field, steps inside a section 6px apart,
+     16px between sections and before the dialog buttons */
+  .card .row{display:flex;column-gap:10px;row-gap:0;margin-bottom:16px;flex-wrap:wrap;align-items:flex-start;}
   .card .row .f{display:flex;flex-direction:column;flex:1 1 auto;} .card .row .f input:not([type=checkbox]),.card .row .f select{width:100%;}
-  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:8px;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:0;}
+  .step{margin-top:6px;}
+  .hint{font-size:11px;color:var(--text-dim);margin-top:4px;}
+  .warn-note{font-size:11px;color:var(--amber);font-style:italic;}
   .chk{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text);cursor:pointer;}
   .chk input{width:auto;}
-  .errline{font-size:11px;color:var(--red);margin-top:4px;min-height:14px;}
+  .errline{font-size:11px;color:var(--red);margin-top:4px;}
+  .errline:empty{display:none;}
   .key-line{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .key-list{display:flex;flex-direction:column;gap:6px;max-height:190px;overflow:auto;margin-top:2px;}
-  .key-row{display:flex;align-items:center;gap:7px;min-width:0;padding:6px 7px;background:var(--panel-2);border:1px solid var(--border);border-radius:7px;}
+  .key-list{display:flex;flex-direction:column;gap:6px;max-height:190px;overflow:auto;}
+  /* one box per key: its row, and any warning about that key under it */
+  .key-item{min-width:0;padding:6px 7px;background:var(--panel-2);border:1px solid var(--border);border-radius:7px;}
+  .key-row{display:flex;align-items:center;gap:7px;min-width:0;}
   .key-row .key-type,.key-row .key-fingerprint{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--text-faint);flex:0 0 auto;}
-  .key-row .key-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:none;border:0;padding:0;color:var(--text);text-align:left;cursor:pointer;flex:1 1 auto;}
-  .key-row .key-name:hover,.key-row .key-name:focus-visible{color:var(--accent);}
+  .key-row .key-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);flex:1 1 auto;}
   .key-row .key-name.empty{color:var(--text-dim);}
   .key-row .key-rename{min-width:0;flex:1 1 auto;}
   .key-row .key-toggle{flex:0 0 auto;}
@@ -204,17 +211,17 @@
   .key-row .key-remove{flex:0 0 auto;}
   .key-row .key-toggle.key-locked{opacity:.45;cursor:not-allowed;}
   .key-row .key-toggle.key-locked input{cursor:not-allowed;}
-  .key-note{font-size:10px;color:var(--text-dim);margin:4px 0 0;padding-left:8px;line-height:1.35;}
+  .key-note{font-size:10px;color:var(--text-dim);margin:4px 0 0;line-height:1.35;}
   .key-note.warn{font-size:11px;color:var(--amber);font-style:italic;}
   .errline.info{color:var(--text-dim);}
   .seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--border-2);border-radius:var(--radius-sm);padding:3px;gap:2px;}
   .seg button{padding:5px 12px;font-weight:500;background:transparent;border:none;color:var(--text-dim);border-radius:6px;}
   .seg button.on{background:linear-gradient(180deg,var(--accent),var(--accent-2));color:var(--btn-text);}
   pre.pub{background:var(--panel-2);border:1px solid var(--border);border-radius:7px;padding:10px;font-family:"JetBrains Mono",monospace;
-    font-size:11px;white-space:pre-wrap;word-break:break-all;color:var(--text-dim);max-height:120px;overflow:auto;-webkit-user-select:text;user-select:text;}
+    font-size:11px;white-space:pre-wrap;word-break:break-all;color:var(--text-dim);max-height:120px;overflow:auto;margin:0;-webkit-user-select:text;user-select:text;}
 
   /* permission grid */
-  .perm-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;padding:4px 0 8px;}
+  .perm-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;}
   .perm-chk{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text);cursor:pointer;-webkit-user-select:none;user-select:none;}
   .perm-chk input[type=checkbox]{width:13px;height:13px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;}
   .perm-chk.disabled-perm{opacity:.45;pointer-events:none;}
@@ -360,10 +367,10 @@
     <div style="display:flex;gap:8px"><input id="umHome" class="mono" style="flex:1 1 auto" placeholder="C:\path\to\folder">
     <button id="umPick" class="btn-ghost btn-sm" style="margin:0;white-space:nowrap">Browse...</button>
     <button id="umMake" class="btn-ghost btn-sm" style="margin:0;white-space:nowrap" title="Create a folder named <user>-share next to the app">Make folder</button></div>
-    <div class="meta" style="color:var(--text-dim);margin-top:5px">The user is locked to this folder. A path that doesn't exist yet will be created on save.</div></div></div>
+    <div class="hint">The user is locked to this folder. A path that doesn't exist yet will be created on save.</div></div></div>
   <div class="row"><div class="f"><label class="field-label">Sign-in method</label>
     <div class="seg" id="umAuth"><button data-v="password" class="on">Password</button><button data-v="key">Public key</button><button data-v="both">Password or key</button></div>
-    <div id="umAuthHelp" class="meta" style="color:var(--text-dim);margin-top:5px;display:none">Either one signs the user in on its own. Both are not required together.</div></div></div>
+    <div id="umAuthHelp" class="hint" style="display:none">Either one signs the user in on its own. Both are not required together.</div></div></div>
   <div id="umPwWrap" class="row"><div class="f"><label class="field-label">Password</label>
     <div style="display:flex;gap:8px">
       <div class="pw-wrap">
@@ -375,13 +382,13 @@
       </div>
       <button id="umGen" class="btn-ghost btn-sm" style="margin:0;white-space:nowrap">Generate</button>
     </div>
-    <div class="meta" id="umPwHint" style="color:var(--text-dim);margin-top:5px">Stored as a one-way hash. It is not shown again after you save.</div></div></div>
+    <div class="hint" id="umPwHint">Stored as a one-way hash. It is not shown again after you save.</div></div></div>
   <div id="umKeyWrap" class="row" style="display:none"><div class="f" style="min-width:0"><label class="field-label">Public keys <span id="umKeyCount" class="meta" style="color:var(--text-faint)"></span></label>
     <div id="umKeyList" class="key-list"><div class="meta" style="color:var(--text-dim)">No keys yet.</div></div>
-    <textarea id="umKeys" class="mono" rows="2" placeholder="Paste one or more public keys (ssh-ed25519 AAAA... name@computer)" style="margin-top:6px"></textarea>
-    <label class="field-label" style="margin-top:6px">Friendly Name (optional)</label><input id="umKeyName" maxlength="100" placeholder="name@computer">
-    <div id="umKeyNameHint" class="meta" style="display:none;color:var(--text-dim);margin-top:4px">Each key keeps its own name. Rename them in the list after adding.</div>
-    <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap"><button id="umKeyAdd" class="btn-ghost btn-sm">Add</button><button id="umKeyFile" class="btn-ghost btn-sm">Choose file...</button><button id="umKeygen" class="btn-ghost btn-sm">Generate a key pair for this user</button></div>
+  </div></div>
+  <div id="umKeyAddWrap" class="row" style="display:none"><div class="f" style="min-width:0"><label class="field-label">Add a key</label>
+    <textarea id="umKeys" class="mono" rows="2" placeholder="Paste one or more public keys (ssh-ed25519 AAAA... name@computer)"></textarea>
+    <div class="step" style="display:flex;gap:8px;flex-wrap:wrap"><button id="umKeyAdd" class="btn-ghost btn-sm">Add</button><button id="umKeyFile" class="btn-ghost btn-sm">Choose file...</button><button id="umKeygen" class="btn-ghost btn-sm">Generate a key pair for this user</button></div>
     <div id="umKeyErr" class="errline"></div></div></div>
   <div class="row"><div class="f"><label class="field-label">Permissions</label>
     <div class="perm-grid">
@@ -404,12 +411,12 @@
   <h3 id="kgTitle">Generate key pair</h3>
   <div class="row"><div class="f"><label class="field-label">Type</label><select id="kgType"></select></div>
     <div class="f" style="flex:2 1 auto"><label class="field-label">Save private key as</label>
-      <div style="display:flex;gap:8px"><input id="kgPath" class="mono" style="flex:1 1 auto" placeholder="C:\Users\you\.ssh\id_ed25519"><button id="kgBrowse" class="btn-ghost btn-sm" style="margin:0;white-space:nowrap">Browse...</button></div>
-      <div class="meta" style="color:var(--text-dim);margin-top:5px">The public key is saved next to it as the same name + .pub. It is added to this user's keys when you click Add or Save on the user. The key files stay on disk even if you then cancel.</div></div></div>
+      <div style="display:flex;gap:8px"><input id="kgPath" class="mono" style="flex:1 1 auto" placeholder="C:\Users\you\.ssh\id_ed25519"><button id="kgBrowse" class="btn-ghost btn-sm" style="margin:0;white-space:nowrap">Browse...</button></div></div>
+    <div class="hint" style="flex:1 0 100%">The public key is saved next to it as the same name + .pub. It is added to this user's keys when you click Add or Save on the user. The key files stay on disk even if you then cancel.</div></div>
   <div class="row"><div class="f"><label class="field-label">Passphrase (optional)</label><input id="kgPass" type="password"></div></div>
-  <div id="kgResult" style="display:none"><div id="kgSaved" class="meta" style="color:var(--green);margin-bottom:6px"></div>
+  <div id="kgResult" style="display:none;margin-bottom:16px"><div id="kgSaved" class="meta" style="color:var(--green);margin-bottom:6px"></div>
     <label class="field-label">Public key (added to the user's keys on Add or Save)</label><pre class="pub" id="kgPub"></pre>
-    <div style="margin:8px 0"><button id="kgCopy" class="btn-ghost btn-sm">Copy public key</button></div></div>
+    <div class="step"><button id="kgCopy" class="btn-ghost btn-sm">Copy public key</button></div></div>
   <div class="modal-actions"><button id="kgClose" class="btn-ghost">Close</button><button id="kgGo" class="btn-primary">Generate</button></div>
 </div></div>
 
@@ -417,13 +424,13 @@
 <div id="confirmModal" class="modal"><div class="card" style="width:480px" role="dialog" aria-modal="true" aria-labelledby="cfTitle">
   <h3 id="cfTitle">Confirm</h3>
   <p id="cfText" style="font-size:12.5px;line-height:1.5;color:var(--text);white-space:pre-line;margin:0 0 16px"></p>
-  <div id="cfFolderRow" style="display:none;margin-bottom:14px">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+  <div id="cfFolderRow" style="display:none">
+    <div style="display:flex;align-items:center;gap:10px">
       <div style="flex:1;min-width:0;font-size:11px;color:var(--text-dim);overflow-wrap:anywhere" id="cfFolderLabel"></div>
       <button id="cfOpenFolder" class="cp" style="flex:none">Open folder</button>
     </div>
-    <div id="cfFolderWarning" style="display:none;font-size:11px;color:var(--amber);margin-bottom:10px">This folder existed before this Quick Start started. Check its contents before deleting.</div>
-    <div style="display:flex;gap:8px">
+    <div id="cfFolderWarning" class="warn-note step" style="display:none">This folder existed before this Quick Start started. Check its contents before deleting.</div>
+    <div style="display:flex;gap:8px;margin-top:16px">
       <button id="cfKeep" class="btn-ghost" style="flex:1">Keep folder &amp; files</button>
       <button id="cfDelete" class="btn-danger" style="flex:1">Delete folder &amp; files</button>
     </div>
@@ -455,7 +462,7 @@
 const $=id=>document.getElementById(id);
 let API=null, meta=null, running=false, isQuick=false;
 let users=[], editingOriginal=null, editingUser=null, authMode="password";
-let workingKeys=[], keySession=0, keyBusy=false, friendlyNameEdited=false, keyInputTimer=null;
+let workingKeys=[], keySession=0, keyBusy=false;
 let cur=null, curAt=0, pwShown=false;
 let pollTimer=null, tickTimer=null;
 let umPwVisible=false;
@@ -578,12 +585,12 @@ function renderKeyList(){
   $("umKeyCount").textContent=workingKeys.length?workingKeys.length+(workingKeys.length===1?" key":" keys")+(offCount?", "+offCount+" off":"")+" (up to 25)":"";
   if(!workingKeys.length){const empty=document.createElement("div");empty.className="meta";empty.style.color="var(--text-dim)";empty.textContent="No keys yet.";list.append(empty);return;}
   workingKeys.forEach((key,index)=>{
-    const wrap=document.createElement("div");
+    const wrap=document.createElement("div");wrap.className="key-item";
     const row=document.createElement("div");row.className="key-row"+(key.enabled===false?" key-off":"");row.title=key.valid?keyDescription(key,false):"Not a valid key";
     if(!key.valid){const bad=document.createElement("span");bad.className="meta";bad.style.color="var(--red)";bad.textContent="Not a valid key";row.append(bad);}
     else{
       const type=document.createElement("span");type.className="key-type";type.textContent=key.type;row.append(type);
-      const name=document.createElement("button");name.type="button";name.className="key-name"+(key.comment?"":" empty");name.title="Click to rename";name.textContent=key.comment||"(no name)";name.onclick=()=>startRenameKey(index);row.append(name);
+      const name=document.createElement("span");name.className="key-name"+(key.comment?"":" empty");name.textContent=key.comment||"(no name)";row.append(name);
       const fingerprint=document.createElement("span");fingerprint.className="key-fingerprint";fingerprint.textContent="ID "+keyDescription({fingerprint:key.fingerprint},true).replace("SHA256:","");fingerprint.title="Key ID (fingerprint): "+key.fingerprint;row.append(fingerprint);
       const toggle=document.createElement("label");toggle.className="toggle key-toggle";toggle.setAttribute("aria-label","Key "+(key.enabled===false?"off":"on")+": "+(key.comment||"(no name)"));
       const input=document.createElement("input");input.type="checkbox";input.checked=key.enabled!==false;input.setAttribute("aria-label",toggle.getAttribute("aria-label"));input.onchange=()=>{key.enabled=input.checked;renderKeyList();};
@@ -592,6 +599,7 @@ function renderKeyList(){
       toggle.title=key.weak?"Off: this key is too weak to sign in and can't be turned on.":key.enabled===false?"Off: this key cannot sign in. Turn it on to allow it.":"On: this key can sign in. Turn it off to block it without removing it.";
       if(key.weak){input.disabled=true;toggle.classList.add("key-locked");}
       toggle.append(input,switchEl,state);row.append(toggle);
+      const rename=document.createElement("button");rename.type="button";rename.className="btn-ghost btn-sm key-rename-btn";rename.textContent="Rename";rename.onclick=()=>startRenameKey(index);row.append(rename);
     }
     const remove=document.createElement("button");remove.type="button";remove.className="btn-ghost btn-sm key-remove";remove.textContent="Remove";remove.onclick=()=>{workingKeys.splice(index,1);renderKeyList();};row.append(remove);wrap.append(row);
     if(key.weak){const note=document.createElement("div");note.className="key-note warn";note.textContent="Too weak ("+key.weak+"-bit RSA): this key can't be turned on. Replace it with a stronger one.";wrap.append(note);}
@@ -603,6 +611,7 @@ function composeKeyName(line,name){const parts=String(line).trim().split(/\s+/,3
 async function startRenameKey(index){
   const key=workingKeys[index];if(!key||!key.valid||keyBusy)return;
   const name=$("umKeyList").querySelectorAll(".key-name")[workingKeys.slice(0,index+1).filter(k=>k.valid).length-1];
+  const rename=name.parentElement.querySelector(".key-rename-btn");if(rename)rename.hidden=true;
   const input=document.createElement("input");input.className="key-rename";input.maxLength=100;input.value=key.comment||"";input.title="";
   name.replaceWith(input);input.focus();input.select();let done=false;
   const cancel=()=>{if(done)return;done=true;renderKeyList();};
@@ -662,10 +671,6 @@ async function init(){
   $("umKeyAdd").onclick=onAddKeys;
   $("umKeyFile").onclick=onPickKeyFile;
   $("umKeygen").onclick=openKeygen;
-  $("umKeys").addEventListener("input",()=>{clearTimeout(keyInputTimer);keyInputTimer=setTimeout(updateFriendlyName,250);});
-  $("umKeys").addEventListener("blur",updateFriendlyName);
-  $("umKeyName").addEventListener("input",()=>{friendlyNameEdited=true;});
-
   $("kgBrowse").onclick=async()=>{const sug=$("kgType").value.startsWith("Ed25519")?"id_ed25519":"id_rsa";const p=await API.browse_save_key(sug);if(p)$("kgPath").value=p;};
   $("kgClose").onclick=()=>closeModal("keygenModal");
   $("kgGo").onclick=onKeygen;
@@ -1031,6 +1036,7 @@ function setAuth(v){
   document.querySelectorAll("#umAuth button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
   $("umPwWrap").style.display=(v==="password"||v==="both")?"flex":"none";
   $("umKeyWrap").style.display=(v==="key"||v==="both")?"flex":"none";
+  $("umKeyAddWrap").style.display=(v==="key"||v==="both")?"flex":"none";
   $("umAuthHelp").style.display=(v==="both")?"block":"none";
 }
 
@@ -1064,8 +1070,7 @@ function openUser(u){
   $("eyeIconHide").style.display="none";
   $("umPw").placeholder=u&&u.has_password?"(unchanged)":"Generate or type a password";
   $("umKeys").value="";
-  $("umKeyName").value="";$("umKeyName").disabled=false;$("umKeyNameHint").style.display="none";
-  friendlyNameEdited=false;setKeyMessage("");setKeyBusy(false);
+  setKeyMessage("");setKeyBusy(false);
   // A key too weak to sign in is always off, so saving stores it with the off keys.
   workingKeys=u&&Array.isArray(u.keys)?u.keys.map(key=>({...key,...(key.weak?{enabled:false}:{})})):[];
   renderKeyList();
@@ -1085,21 +1090,9 @@ async function onPickKeyFile(){
   const r=await API.pick_key_file();
   if(!activeKeySession(token))return;
   if(!r.ok){if(r.error)setKeyMessage(r.error);return;}
-  if(r.keys.length===1){$("umKeys").value=r.keys[0].key;$("umKeyName").value=r.keys[0].described.comment||"";$("umKeyName").disabled=false;$("umKeyNameHint").style.display="none";friendlyNameEdited=false;return;}
-  const added=appendKeyResults(r.keys);
-  if(added.limit){setKeyMessage("A user can have at most 25 keys. Remove one before adding another.");return;}
-  if(added.added)renderKeyList();
-  setKeyMessage("Added "+added.added+" key"+(added.added===1?"":"s")+" from the file."+(added.duplicates?" "+added.duplicates+" duplicate"+(added.duplicates===1?" was":"s were")+" skipped.":""),true);
-}
-async function updateFriendlyName(){
-  const text=$("umKeys").value;
-  if(!text.trim()){$("umKeyName").disabled=false;$("umKeyNameHint").style.display="none";return;}
-  const token=keySession;
-  const r=await API.check_public_key(text);
-  if(!activeKeySession(token)||!r.ok||$("umKeys").value!==text)return;
-  const many=r.keys.length>1;
-  $("umKeyName").disabled=many;$("umKeyNameHint").style.display=many?"block":"none";
-  if(!many&&!friendlyNameEdited)$("umKeyName").value=r.keys[0].described.comment||"";
+  if(r.keys.length===1){$("umKeys").value=r.keys[0].key;return;}
+  $("umKeys").value=r.keys.map(key=>key.key).join("\n");
+  await addPastedKeys(true);
 }
 
 function appendKeyResults(results){
@@ -1111,22 +1104,31 @@ function appendKeyResults(results){
   for(const result of results){const identity=keyIdentity(result.key);if(workingKeys.some(key=>keyIdentity(key.line)===identity)){duplicates++;duplicate=duplicate||result;continue;}workingKeys.push(keyFromResult(result));added++;}
   return {added,duplicates,duplicate};
 }
-async function addPastedKeys(){
+async function addPastedKeys(fromFile){
   const text=$("umKeys").value.trim();if(!text)return true;
   const token=keySession;const checked=await API.check_public_key(text);
   if(!activeKeySession(token))return false;
   if(!checked.ok){setKeyMessage(checked.error||"Could not read that public key.");return false;}
   let results=checked.keys;
-  // An untouched, still-empty name box keeps the key's own comment: the
-  // box may not have been filled yet when Add or Save was clicked.
-  const typedName=$("umKeyName").value;
-  if(results.length===1){const line=composeKeyName(results[0].key,friendlyNameEdited||typedName.trim()?typedName:(results[0].described.comment||""));const named=await API.check_public_key(line);if(!activeKeySession(token))return false;if(!named.ok||!named.keys||named.keys.length!==1){setKeyMessage(named.error||"Could not read that public key.");return false;}results=named.keys;}
+  const usedNames=new Set(workingKeys.map(key=>key.comment).filter(Boolean));
+  for(let index=0;index<results.length;index++){
+    const result=results[index];
+    if(result.described.comment){usedNames.add(result.described.comment);continue;}
+    const prefix=$("umUser").value.trim();let number=1,name;
+    do{name=(prefix?prefix+"-":"")+"key"+number++;}while(usedNames.has(name));
+    usedNames.add(name);
+    const named=await API.check_public_key(composeKeyName(result.key,name));
+    if(!activeKeySession(token))return false;
+    if(!named.ok||!named.keys||named.keys.length!==1){setKeyMessage(named.error||"Could not read that public key.");return false;}
+    results=[...results.slice(0,index),named.keys[0],...results.slice(index+1)];
+  }
   const appended=appendKeyResults(results);
   if(appended.limit){setKeyMessage("A user can have at most 25 keys. Remove one before adding another.");return false;}
   if(appended.added)renderKeyList();
-  if(appended.duplicates){const name=appended.duplicate.described.comment||"(no name)";setKeyMessage("Already on the list: "+name+".",true);}
+  if(fromFile)setKeyMessage("Added "+appended.added+" key"+(appended.added===1?"":"s")+" from the file."+(appended.duplicates?" "+appended.duplicates+" duplicate"+(appended.duplicates===1?" was":"s were")+" skipped.":""),true);
+  else if(appended.duplicates){const name=appended.duplicate.described.comment||"(no name)";setKeyMessage("Already on the list: "+name+".",true);}
   else if(results.find(result=>result.note))setKeyMessage(results.find(result=>result.note).note,true);else setKeyMessage("");
-  $("umKeys").value="";$("umKeyName").value="";$("umKeyName").disabled=false;$("umKeyNameHint").style.display="none";friendlyNameEdited=false;
+  $("umKeys").value="";
   return true;
 }
 async function onAddKeys(){if(keyBusy)return;setKeyBusy(true);try{await addPastedKeys();}finally{if($("userModal").classList.contains("show"))setKeyBusy(false);}}
@@ -1255,7 +1257,7 @@ async function keygenSuccess(r){
   const token=keySession,checked=await API.check_public_key(r.public);
   if(!activeKeySession(token))return;
   if(!checked.ok||!checked.keys||checked.keys.length!==1){setKeyMessage(checked.error||"Could not read the generated public key.");return;}
-  $("umKeys").value=checked.keys[0].key;$("umKeyName").value=checked.keys[0].described.comment||"";$("umKeyName").disabled=false;$("umKeyNameHint").style.display="none";friendlyNameEdited=false;
+  $("umKeys").value=checked.keys[0].key;
   toast("Key pair created. Click Add, or Save the user, to add it to this user's keys.");
 }
 async function onKeygen(){

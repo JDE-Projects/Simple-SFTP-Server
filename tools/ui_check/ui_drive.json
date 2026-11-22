@@ -24,6 +24,11 @@
       "fixture": "tools/ui_check/fixture_weak_key.py",
       "timeout_s": 120
     },
+    "spacing": {
+      "script": "tools/ui_check/spacing.js",
+      "fixture": "tools/ui_check/fixture_weak_key.py",
+      "timeout_s": 120
+    },
     "layout": {
       "script": "tools/ui_check/layout.js",
       "fixture": "tools/ui_check/fixture.py",
