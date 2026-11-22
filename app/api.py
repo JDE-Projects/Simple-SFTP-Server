@@ -5,10 +5,11 @@ import shutil
 import threading
 import urllib.parse
 import webbrowser
+from contextvars import ContextVar
 from datetime import datetime, timezone
 
 from app import paths
-from app.atomic import atomic_write_json
+from app.atomic import ConfigWriteConflict, FILE_MISSING, atomic_write_json
 from app.constants import ALLOWED_URL_HOST, DEFAULT_PORT, GITHUB_REPO, MAX_KEYS_PER_USER
 from app.debug_log import debug, describe_error, describe_failure
 from app.helpers import fingerprint_sha256, friendly_error
@@ -41,6 +42,11 @@ def _user_revision(record):
 
 STALE_USER_ERROR = ("This user was changed outside the app since you opened this window. "
                     "Close it and open the user again.")
+CONFIG_CHANGED_ERROR = ("The settings file changed outside the app since you opened this window. "
+                        "Close this window and open the user again.")
+
+
+_config_write_expected_bytes = ContextVar("config_write_expected_bytes", default=None)
 
 
 def _is_allowed_url(url):
@@ -128,16 +134,19 @@ class Api:
         return {"ok": save_prefs(prefs)}
 
     # ---- config ----
-    def _load_config(self):
-        if not os.path.exists(paths.CONFIG_FILE):
-            return {"settings": {"port": DEFAULT_PORT}, "users": []}
+    def _load_config_with_snapshot(self):
+        # Stays unmatched if the file can't be opened, so a later write refuses.
+        raw = object()
         try:
-            with open(paths.CONFIG_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            with open(paths.CONFIG_FILE, "rb") as f:
+                raw = f.read()
+            data = json.loads(raw)
             if isinstance(data, dict):
                 data.setdefault("settings", {"port": DEFAULT_PORT})
                 data.setdefault("users", [])
-                return data
+                return data, raw
+        except FileNotFoundError:
+            return {"settings": {"port": DEFAULT_PORT}, "users": []}, FILE_MISSING
         except Exception as e:
             # The file exists but can't be parsed. Preserve it rather than
             # silently discarding it: rename it aside and keep going with a
@@ -159,13 +168,49 @@ class Api:
                     "Your saved settings file could not be read and could not be "
                     "moved aside. The app started with no users; the original file "
                     "was left in place.")
-        return {"settings": {"port": DEFAULT_PORT}, "users": []}
+                return {"settings": {"port": DEFAULT_PORT}, "users": []}, raw
+            return {"settings": {"port": DEFAULT_PORT}, "users": []}, FILE_MISSING
+        return {"settings": {"port": DEFAULT_PORT}, "users": []}, raw
+
+    def _load_config(self):
+        return self._load_config_with_snapshot()[0]
+
+    def _load_config_read_only(self):
+        try:
+            with open(paths.CONFIG_FILE, "rb") as f:
+                raw = f.read()
+            data = json.loads(raw)
+            if not isinstance(data, dict):
+                raise ValueError("config root is not an object")
+            data.setdefault("settings", {"port": DEFAULT_PORT})
+            data.setdefault("users", [])
+            return data
+        except FileNotFoundError:
+            return {"settings": {"port": DEFAULT_PORT}, "users": []}
+        except Exception as e:
+            debug._log("config refresh failed", describe_error(e))
+            return None
+
+    def _config_conflict_response(self, snapshot_users):
+        fresh_cfg = self._load_config_read_only()
+        return {
+            "ok": False,
+            "stale": True,
+            "users": self._public_users(fresh_cfg) if fresh_cfg is not None else snapshot_users,
+            "error": CONFIG_CHANGED_ERROR,
+        }
 
     def _save_config(self, cfg):
         try:
             cfg["_note"] = "Simple SFTP Server config. Passwords are bcrypt hashes, never plaintext."
-            atomic_write_json(paths.CONFIG_FILE, cfg, indent=2)
+            expected_bytes = _config_write_expected_bytes.get()
+            if expected_bytes is None:
+                atomic_write_json(paths.CONFIG_FILE, cfg, indent=2)
+            else:
+                atomic_write_json(paths.CONFIG_FILE, cfg, indent=2, expected_bytes=expected_bytes)
             return True
+        except ConfigWriteConflict:
+            raise
         except Exception as e:
             debug._log("save config failed", describe_error(e))
             return False
@@ -309,6 +354,8 @@ class Api:
         if not any(permissions.values()):
             return {"ok": False, "error": "Grant the user at least one permission."}
         auth = p.get("auth", "password")
+        plain = p.get("password") or ""
+        password_hash = hash_password(plain) if auth in ("password", "both") and plain else None
         authorized_keys = None
         disabled_keys_supplied = "disabled_keys" in p
         if auth in ("key", "both"):
@@ -344,7 +391,8 @@ class Api:
             if not deduplicated_keys:
                 return {"ok": False, "error": "Add at least one valid public key (or switch to password auth)."}
         with self._cfg_lock:
-            cfg = self._load_config()
+            cfg, expected_bytes = self._load_config_with_snapshot()
+            snapshot_users = self._public_users(cfg)
             if original:
                 stored_record = next(
                     (u for u in cfg.get("users", []) if u.get("username") == original), None)
@@ -416,7 +464,6 @@ class Api:
                 key_identity(key) for key in existing.get("authorized_keys", [])
                 if isinstance(key, str) and key_identity(key) is not None
             } if existing else set()
-            plain = p.get("password") or ""
             if auth in ("password", "both") and not plain and \
                     not (existing and existing.get("password_hash")):
                 return {"ok": False, "error": "Set a password for this user (or switch to key auth)."}
@@ -454,7 +501,7 @@ class Api:
                 rec.pop("managed_folder", None)
             if auth in ("password", "both"):
                 if plain:
-                    rec["password_hash"] = hash_password(plain)
+                    rec["password_hash"] = password_hash
             else:
                 rec.pop("password_hash", None)
             if auth in ("key", "both"):
@@ -471,7 +518,15 @@ class Api:
                 users.append(rec)
             users.sort(key=lambda x: x.get("username", "").lower())
             cfg["users"] = users
-            if not self._save_config(cfg):
+            token = _config_write_expected_bytes.set(expected_bytes)
+            try:
+                try:
+                    saved = self._save_config(cfg)
+                except ConfigWriteConflict:
+                    return self._config_conflict_response(snapshot_users)
+            finally:
+                _config_write_expected_bytes.reset(token)
+            if not saved:
                 return {"ok": False, "error": "Could not write the config file."}
         debug._log("user saved", {"permissions": permissions, "auth": auth})
         access_changed = existing is None or any((
@@ -492,7 +547,8 @@ class Api:
 
     def delete_user(self, username, delete_folder=False, rev=None):
         with self._cfg_lock:
-            cfg = self._load_config()
+            cfg, expected_bytes = self._load_config_with_snapshot()
+            snapshot_users = self._public_users(cfg)
             user_rec = next((u for u in cfg.get("users", []) if u.get("username") == username), None)
             if user_rec is None or not isinstance(rev, str) or rev != _user_revision(user_rec):
                 return {
@@ -502,7 +558,15 @@ class Api:
                     "error": STALE_USER_ERROR,
                 }
             cfg["users"] = [u for u in cfg.get("users", []) if u.get("username") != username]
-            if not self._save_config(cfg):
+            token = _config_write_expected_bytes.set(expected_bytes)
+            try:
+                try:
+                    saved = self._save_config(cfg)
+                except ConfigWriteConflict:
+                    return self._config_conflict_response(snapshot_users)
+            finally:
+                _config_write_expected_bytes.reset(token)
+            if not saved:
                 return {"ok": False, "error": "Could not write the config file."}
         dropped = self._service.disconnect_user(username)
         warning = None
