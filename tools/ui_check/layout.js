@@ -221,10 +221,10 @@ async function checkEditor(helpers, label, shotName) {
     e.oneRow && e.inside && e.noWrap, JSON.stringify(e));
   // The open dialog covers the theme button, so it is pressed from the page.
   const toggleTheme = "document.getElementById('theme-btn').click()";
-  await screenshot(`${shotName}-dark`, 0);
+  await screenshot(`${shotName}-dark`);
   await evaluate(toggleTheme);
   check(`${label}: editor switches to light`, await evaluate("document.body.classList.contains('light')"));
-  await screenshot(`${shotName}-light`, 0);
+  await screenshot(`${shotName}-light`);
   await evaluate(toggleTheme);
   await click("#umCancel");
 }
@@ -276,9 +276,9 @@ async function checkMultiKeyEditor(helpers) {
     await screenshot("keys-narrow-dark", 0);
     await evaluate("document.querySelector('.app').style.width=''");
     await evaluate(showRows);
-    await screenshot("keys-full-width-dark", 0);
+    await screenshot("keys-full-width-dark");
     await evaluate("document.getElementById('theme-btn').click()");
-    await screenshot("keys-full-width-light", 0);
+    await screenshot("keys-full-width-light");
     await evaluate("document.getElementById('theme-btn').click()");
     await evaluate(`(() => { workingKeys = Array.from({length:25}, (_, i) => ({ line:'ssh-ed25519 many-'+i+' key-'+i, valid:true, type:'ed25519', comment:'key-'+i, fingerprint:'SHA256:many-'+i, name_problem:null })); renderKeyList(); })()`);
     await evaluate("document.getElementById('umKeys').value='ssh-ed25519 extra-data extra'");await click("#umKeyAdd");
@@ -413,9 +413,9 @@ export default async function layout(helpers) {
     user: document.getElementById('umUser').value })`);
   check("Manage opens the editor for that user, with Delete user shown",
     m.title === "Manage user" && m.del && m.user === "fixtureuser", JSON.stringify(m));
-  await screenshot("manage-dialog-dark", 0);
+  await screenshot("manage-dialog-dark");
   await evaluate("document.getElementById('theme-btn').click()");
-  await screenshot("manage-dialog-light", 0);
+  await screenshot("manage-dialog-light");
   await evaluate("document.getElementById('theme-btn').click()");
   await click("#umDelete");
   check("Delete user asks first",

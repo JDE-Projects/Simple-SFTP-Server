@@ -85,10 +85,10 @@ export default async function keygenErrors(helpers) {
   await stubKeygen(helpers, [{ ok: false, restore_failed: true, error: RESTORE_ERROR }]);
   await click("#kgGo");
   await checkInfoDialog(helpers, "first try", "Key not created");
-  await screenshot("restore-dialog-dark", 0);
+  await screenshot("restore-dialog-dark");
   await evaluate("document.getElementById('theme-btn').click()");
   check("restore dialog switches to light", await evaluate("document.body.classList.contains('light')"));
-  await screenshot("restore-dialog-light", 0);
+  await screenshot("restore-dialog-light");
   await evaluate("document.getElementById('theme-btn').click()");
   await closeInfoDialog(helpers, "first try");
 
