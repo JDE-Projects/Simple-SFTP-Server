@@ -17,9 +17,9 @@
 
 const NARROW_PX = 960;
 const KEYUSER_COMMENT = "keyuser-comment-that-is-deliberately-longer-than-eighty-characters-to-check-the-editor-truncation-title";
-const LEGACY_KEYS = [
-  { type: "ed25519", comment: "legacy-first", fingerprint: "SHA256:LegacyFirstFingerPrint" },
-  { type: "rsa", comment: "legacy-second", fingerprint: "SHA256:LegacySecondFingerPrint" },
+const MULTI_KEYS = [
+  { type: "ed25519", comment: "first-device", fingerprint: "SHA256:FirstDeviceFingerPrint" },
+  { type: "rsa", comment: "second-device", fingerprint: "SHA256:SecondDeviceFingerPrint" },
 ];
 
 // Hover text on each row's sign-in label, in the order the test users are added.
@@ -27,7 +27,7 @@ const EXPECTED_HOVER = [
   "Signs in with a password",
   "Signs in with a password or a public key (ed25519, alice@laptop)",
   `Signs in with a public key (ed25519, ${KEYUSER_COMMENT})`,
-  "Signs in with a public key (2 keys from an older version)",
+  "Signs in with a public key (2 keys)",
 ];
 
 const PERMISSION_LABELS = [
@@ -228,150 +228,91 @@ async function checkEditor(helpers, label, shotName) {
   await click("#umCancel");
 }
 
-async function checkOneKeyEditor(helpers) {
+async function checkMultiKeyEditor(helpers) {
   const { click, evaluate, waitFor, check, screenshot } = helpers;
-  const file = {
-    key: "ssh-ed25519 file-key-data file@laptop",
-    described: { type: "ed25519", comment: "file@laptop", fingerprint: "SHA256:FileFingerPrintIsLongEnoughForTheTitle" },
-  };
-  const pasted = {
-    key: "ssh-ed25519 pasted-key-data paste@laptop",
-    described: { type: "ed25519", comment: "paste@laptop", fingerprint: "SHA256:PastedFingerPrintIsLongEnoughForTheTitle" },
-  };
-  const generated = {
-    key: "ssh-ed25519 generated-key-data generated@laptop",
-    described: { type: "ed25519", comment: "generated@laptop", fingerprint: "SHA256:GeneratedFingerPrintIsLongEnoughForTheTitle" },
-  };
   await evaluate(`(() => {
-    window.__oneKeyData = ${JSON.stringify({ file, pasted, generated })};
-    window.__oneKeyOriginalApi = {
-      pick_key_file: API.pick_key_file, check_public_key: API.check_public_key,
-      generate_keypair: API.generate_keypair, save_user: API.save_user,
-    };
-    window.__oneKeyPickError = false;
-    window.__oneKeyUsers = users;
-    API.pick_key_file = async () => window.__oneKeyPickError
-      ? { ok: false, error: "The chosen file is not a public key." }
-      : { ok: true, ...window.__oneKeyData.file };
+    const result = (key, name = "") => ({ key: name ? key + " " + name : key,
+      described: { type: key.split(" ")[0].replace("ssh-", ""), comment: name,
+        fingerprint: "SHA256:" + key.split(" ")[1] + "Fingerprint" }, note: null });
+    window.__multiOriginalApi = { pick_key_file: API.pick_key_file, check: API.check_public_key,
+      generate_keypair: API.generate_keypair, save_user: API.save_user };
+    window.__multi = { result, fileMode: "one", saved: null, delayed: null };
     API.check_public_key = async text => {
-      const data = text.includes("pasted-key") ? window.__oneKeyData.pasted
-        : text.includes("generated-key") ? window.__oneKeyData.generated
-        : window.__oneKeyData.file;
-      return { ok: true, ...data };
+      if (text.includes("delayed")) return new Promise(resolve => { window.__multi.delayed = () => resolve({ ok: true, keys: [result("ssh-ed25519 delayed-data", "delayed")] }); });
+      if (text.includes("invalid")) return { ok: false, error: "That is not a valid public key." };
+      const keys = text.trim().split(/\\n+/).map(line => { const p = line.trim().split(/\\s+/, 3); return result(p[0] + " " + p[1], p[2] || ""); });
+      return { ok: true, keys };
     };
-    API.generate_keypair = async () => ({ ok: true, public: window.__oneKeyData.generated.key,
-      private_path: "C:\\Users\\someone\\.ssh\\id_ed25519" });
-    API.save_user = async payload => {
-      window.__oneKeySaved = payload;
-      return { ok: true, users: window.__oneKeyUsers };
-    };
+    API.pick_key_file = async () => ({ ok: true, keys: window.__multi.fileMode === "one"
+      ? [result("ssh-ed25519 file-data", "file@laptop")]
+      : [result("ssh-ed25519 file-one", "one"), result("ssh-rsa file-two", "two")] });
+    API.generate_keypair = async () => ({ ok: true, public: "ssh-ed25519 generated-data generated@laptop", private_path: "C:\\\\keys\\\\id_ed25519" });
+    API.save_user = async payload => { window.__multi.saved = payload; return { ok: true, users }; };
+    window.__multiUser = { username: "multikey", home: "C:\\\\keys", auth: "key", has_password: false,
+      permissions: Object.fromEntries(PERM_KEYS.map(key => [key, key === "list"])), key_count: 2,
+      key: { type: "ed25519", comment: "first", fingerprint: "SHA256:first-dataFingerprint" }, keys: [
+        { line: "ssh-ed25519 first-data first", valid: true, type: "ed25519", comment: "first", fingerprint: "SHA256:first-dataFingerprint", name_problem: null },
+        { line: "ssh-rsa second-data", valid: true, type: "rsa", comment: "", fingerprint: "SHA256:second-dataFingerprint", name_problem: null },
+      ] };
   })()`);
   try {
-    await click("#userRows tr:nth-child(3) td.act button");
-    await waitFor("document.getElementById('userModal').classList.contains('show')", 5000);
-    const current = await evaluate(`(() => {
-      const key = document.getElementById('umKeyCurrent');
-      const dialog = document.querySelector('#userModal .card').getBoundingClientRect();
-      const box = key.getBoundingClientRect();
-      return { inside: box.left >= dialog.left - .5 && box.right <= dialog.right + .5,
-        cut: key.scrollWidth > key.clientWidth, title: key.title };
-    })()`);
-    check("narrow editor: current key stays inside, is cut, and titles the full key",
-      current.inside && current.cut && current.title.includes(KEYUSER_COMMENT) &&
-      current.title.includes("SHA256:KeyuserFingerPrintIsLongEnoughForTheTitle"), JSON.stringify(current));
-
-    await click("#umKeyFile");
-    check("Choose file: shows the chosen key as pending",
-      await evaluate(`document.getElementById('umKeyPending').offsetParent !== null &&
-        document.getElementById('umKeyPending').textContent.includes(${JSON.stringify(file.described.comment)})`));
-    // The key section with a cut current key and a pending key, in both themes.
-    await evaluate("document.getElementById('umKeyWrap').scrollIntoView({block: 'center'})");
-    await screenshot("key-section-narrow-dark", 0);
+    await evaluate("openUser(window.__multiUser);setAuth('key')");
+    check("W1 list renders stored keys with name, fingerprint, and Remove", await evaluate(`(() => {
+      const rows = [...document.querySelectorAll('#umKeyList .key-row')]; return rows.length === 2 && rows.every(row => row.textContent.includes('Remove')) &&
+        rows[0].textContent.includes('ed25519') && rows[0].textContent.includes('first') && rows[1].textContent.includes('(no name)'); })()`));
+    const narrow = await evaluate(`(() => { document.querySelector('.app').style.width='${NARROW_PX}px'; const list=document.getElementById('umKeyList'); const rows=[...list.querySelectorAll('.key-row')]; return rows.every(row => row.getBoundingClientRect().right <= list.getBoundingClientRect().right + 1) && rows[0].title.includes('SHA256:'); })()`);
+    check("W2 full and narrow rows stay contained and title long text", narrow);
+    // Screenshots of filled rows: a named key, an unnamed key, a long name, a
+    // name that must be renamed, and an invalid entry, in both themes.
+    const showRows = `(() => { workingKeys = [
+      { line:'ssh-ed25519 shot-a alice@laptop', valid:true, type:'ed25519', comment:'alice@laptop', fingerprint:'SHA256:Abc123Def456Ghi789Jkl012Mno345Pqr678Stu901', name_problem:null },
+      { line:'ssh-rsa shot-b', valid:true, type:'rsa', comment:'', fingerprint:'SHA256:Zyx987Wvu654Tsr321Qpo098Nml765Kji432Hgf109', name_problem:null },
+      { line:'ssh-ed25519 shot-c long', valid:true, type:'ed25519', comment:'build-server-in-the-basement-rack-two-with-a-deliberately-long-friendly-name-for-truncation', fingerprint:'SHA256:Lmn456Opq789Rst012Uvw345Xyz678Abc901Def234', name_problem:null },
+      { line:'ssh-ed25519 shot-d odd', valid:true, type:'ed25519', comment:'odd name', fingerprint:'SHA256:Qrs111Tuv222Wxy333Zab444Cde555Fgh666Ijk777', name_problem:'The key name contains hidden characters.' },
+      { line:'garbage', valid:false, type:'', comment:'', fingerprint:'', name_problem:null },
+    ]; renderKeyList(); document.getElementById('umKeyWrap').scrollIntoView({block:'start'}); })()`;
+    await evaluate(showRows);
+    await screenshot("keys-narrow-dark", 0);
+    await evaluate("document.querySelector('.app').style.width=''");
+    await evaluate(showRows);
+    await screenshot("keys-full-width-dark", 0);
     await evaluate("document.getElementById('theme-btn').click()");
-    await screenshot("key-section-narrow-light", 0);
+    await screenshot("keys-full-width-light", 0);
     await evaluate("document.getElementById('theme-btn').click()");
-
-    await evaluate(`(() => { const e = document.getElementById('umKeys');
-      e.value = ${JSON.stringify(pasted.key)}; e.dispatchEvent(new Event('change')); })()`);
-    await waitFor(`document.getElementById('umKeyPending').textContent.includes(${JSON.stringify(pasted.described.comment)})`, 5000);
-    check("Paste: replaces pending, then clears the textarea",
-      await evaluate("document.getElementById('umKeys').value === ''"));
-
-    await click("#umKeygen");
-    await waitFor("document.getElementById('keygenModal').classList.contains('show')", 5000);
-    await evaluate("document.getElementById('kgPath').value='C:\\\\Users\\\\someone\\\\.ssh\\\\id_ed25519'");
-    await click("#kgGo");
-    await waitFor(`document.getElementById('umKeyPending').textContent.includes(${JSON.stringify(generated.described.comment)})`, 5000);
-    check("Generate: replaces pending with the generated key", true);
-    await click("#kgClose");
-
-    await evaluate("window.__oneKeyPickError = true");
-    await click("#umKeyFile");
-    const error = await evaluate(`({ error: document.getElementById('umKeyErr').textContent,
-      pending: document.getElementById('umKeyPending').textContent })`);
-    check("Choose file error: shows the error and keeps pending", error.error === "The chosen file is not a public key." &&
-      error.pending.includes(generated.described.comment), JSON.stringify(error));
-
-    await click("#umSave");
-    await waitFor("!document.getElementById('userModal').classList.contains('show')", 5000);
-    const saved = await evaluate("window.__oneKeySaved");
-    check("Save: sends the pending public key without authorized_keys",
-      saved.public_key === generated.key && !("authorized_keys" in saved), JSON.stringify(saved));
-
-    await click("#userRows tr:nth-child(3) td.act button");
-    await click("#umCancel");
-    await click("#userRows tr:nth-child(3) td.act button");
-    const reset = await evaluate(`({ pending: document.getElementById('umKeyPending').offsetParent !== null,
-      text: document.getElementById('umKeys').value, error: document.getElementById('umKeyErr').textContent })`);
-    check("Cancel then reopen: pending, pasted text, and key error are cleared",
-      !reset.pending && reset.text === "" && reset.error === "", JSON.stringify(reset));
-    await click("#umCancel");
-
-    const authTags = await evaluate("[...document.querySelectorAll('#userRows tr')].slice(0, 3).map(tr => tr.children[2].textContent)");
-    check("Auth tags show PW, PW or Key, and Key without counts",
-      JSON.stringify(authTags) === JSON.stringify(["PW", "PW or Key", "Key"]), JSON.stringify(authTags));
+    await evaluate(`(() => { workingKeys = Array.from({length:25}, (_, i) => ({ line:'ssh-ed25519 many-'+i+' key-'+i, valid:true, type:'ed25519', comment:'key-'+i, fingerprint:'SHA256:many-'+i, name_problem:null })); renderKeyList(); })()`);
+    await evaluate("document.getElementById('umKeys').value='ssh-ed25519 extra-data extra'");await click("#umKeyAdd");
+    check("W3 25 keys stay usable and Add refuses the limit", await evaluate("document.getElementById('umKeyCount').textContent === '25 of 25 keys' && document.getElementById('umKeyList').scrollHeight >= document.getElementById('umKeyList').clientHeight && document.getElementById('umKeyErr').textContent.includes('at most 25')"));
+    await evaluate("openUser({...window.__multiUser, keys:[{line:'bad',valid:false,type:'',comment:'',fingerprint:'',name_problem:null}]});setAuth('key')");await click("#umSave");
+    check("W4 invalid stored entry blocks Save", await evaluate("document.getElementById('umKeyErr').textContent === 'Remove the key marked Not a valid key before saving.'"));
+    await evaluate("openUser(window.__multiUser);setAuth('key')");await click("#umKeyList .key-remove");await evaluate("closeModal('userModal');openUser(window.__multiUser);setAuth('key')");const restored=await evaluate("workingKeys.length === 2");await click("#umKeyList .key-remove");await evaluate("window.__multi.saved=null");await click("#umSave");
+    check("W5 Remove, Cancel, reopen, and Save preserve the working copy", restored && await evaluate("Array.isArray(window.__multi.saved.authorized_keys) && window.__multi.saved.authorized_keys.length === 1"));
+    await waitFor("!document.getElementById('userModal').classList.contains('show')", 5000);await evaluate("openUser(window.__multiUser);setAuth('key')");
+    await evaluate("document.getElementById('umKeys').value='ssh-ed25519 single-data original';document.getElementById('umKeys').dispatchEvent(new Event('input'))");await waitFor("document.getElementById('umKeyName').value === 'original'", 2000);await evaluate("document.getElementById('umKeyName').value='edited';document.getElementById('umKeyName').dispatchEvent(new Event('input'))");await click("#umKeyAdd");
+    check("W6 one pasted key fills and saves the edited Friendly Name", await evaluate("workingKeys.some(key => key.line === 'ssh-ed25519 single-data edited')"));
+    await evaluate("document.getElementById('umKeys').value='ssh-ed25519 three-one one\\nssh-rsa three-two two\\nssh-ed25519 three-three three';document.getElementById('umKeys').dispatchEvent(new Event('input'))");await waitFor("document.getElementById('umKeyName').disabled", 2000);
+    const hintShown = await evaluate("document.getElementById('umKeyNameHint').offsetParent !== null");
+    await click("#umKeyAdd");
+    check("W7 three pasted keys disable Friendly Name and append", hintShown && await evaluate("workingKeys.length === 6"));
+    await evaluate("document.getElementById('umKeys').value='ssh-ed25519 three-one one'");await click("#umKeyAdd");
+    check("W8 duplicate paste is skipped", await evaluate("document.getElementById('umKeyErr').textContent === 'Already on the list: one.'"));
+    await evaluate("workingKeys=[];renderKeyList();window.__multi.fileMode='one'");await click("#umKeyFile");const oneFile=await evaluate("document.getElementById('umKeys').value.includes('file-data') && document.getElementById('umKeyName').value === 'file@laptop'");await evaluate("window.__multi.fileMode='many'");await click("#umKeyFile");await click("#umKeygen");await evaluate("document.getElementById('kgPath').value='C:\\\\keys\\\\id'");await click("#kgGo");
+    check("W9 file and generated keys add without replacing rows", oneFile && await evaluate("workingKeys.length === 2 && document.getElementById('umKeys').value.includes('generated-data')"));
+    await click("#kgClose");await click("#umKeyList .key-name");await evaluate("const input=document.querySelector('#umKeyList .key-rename');input.value='renamed';input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))");await waitFor("workingKeys[0].comment === 'renamed'", 2000);const renamed=await evaluate("workingKeys[0].line");await click("#umKeyList .key-name");await evaluate("document.querySelector('#umKeyList .key-rename').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
+    const stillOpen = await evaluate("document.getElementById('userModal').classList.contains('show') && !document.querySelector('#umKeyList .key-rename') && workingKeys[0].comment === 'renamed'");
+    check("W10 rename changes only the name and Escape cancels without closing the window", renamed === "ssh-ed25519 file-one renamed" && stillOpen);
+    await evaluate("document.getElementById('umKeys').value='ssh-ed25519 save-data save';window.__multi.saved=null");await click("#umSave");await waitFor("window.__multi.saved !== null", 2000);const saveText=await evaluate("window.__multi.saved.authorized_keys.some(key => key.includes('save-data'))");await evaluate("openUser(window.__multiUser);setAuth('key');document.getElementById('umKeys').value='invalid'");await click("#umSave");
+    check("W11 Save adds pasted text and refuses invalid text", saveText && await evaluate("document.getElementById('umKeyErr').textContent.includes('not a valid') && window.__multi.saved !== null"));
+    await evaluate("cur={connections:[{user:'multikey',active:0}]};openUser(window.__multiUser);setAuth('key');document.getElementById('umKeys').value='ssh-ed25519 warning-data warning'");await click("#umSave");const warned=await evaluate("document.getElementById('confirmModal').classList.contains('show')");await click("#cfCancel");await evaluate("openUser(window.__multiUser);setAuth('key');window.__multi.saved=null");await click("#umSave");
+    check("W12 added key warns for a live user, rename-only does not", warned && await evaluate("window.__multi.saved !== null && !document.getElementById('confirmModal').classList.contains('show')"));
+    const hover=await evaluate("authHover({...window.__multiUser,key_count:1})+'|'+authHover(window.__multiUser)+'|'+document.body.innerText.includes('older'+' version')");
+    check("W13 hover names one key, counts several, and has no old wording", hover.includes('(ed25519, first)') && hover.includes('(2 keys)') && hover.endsWith('|false'), hover);
+    await evaluate("openUser(window.__multiUser);setAuth('key');document.getElementById('umKeys').value='ssh-ed25519 delayed-data delayed'");await click("#umKeyAdd");await evaluate("closeModal('userModal');openUser(window.__multiUser);window.__multi.delayed()")
+    await waitFor("!keyBusy", 2000);
+    check("W14 stale Add reply does not change a reopened window", await evaluate("workingKeys.length === 2 && !workingKeys.some(key => key.line.includes('delayed-data'))"));
+    await evaluate("closeModal('userModal');document.querySelector('.app').style.width=''");
   } finally {
-    await evaluate(`(() => {
-      Object.assign(API, window.__oneKeyOriginalApi);
-      delete window.__oneKeyOriginalApi;
-      delete window.__oneKeyData;
-      delete window.__oneKeyUsers;
-    })()`);
+    await evaluate("API.pick_key_file=window.__multiOriginalApi.pick_key_file;API.check_public_key=window.__multiOriginalApi.check;API.generate_keypair=window.__multiOriginalApi.generate_keypair;API.save_user=window.__multiOriginalApi.save_user;delete window.__multiOriginalApi;delete window.__multi;delete window.__multiUser;");
   }
-}
-
-async function checkLegacyKeysEditor(helpers, label) {
-  const { click, evaluate, waitFor, check, screenshot } = helpers;
-  await click("#userRows tr:nth-child(4) td.act button");
-  await waitFor("document.getElementById('userModal').classList.contains('show')", 5000);
-  const editor = await evaluate(`(() => {
-    const dialog = document.querySelector('#userModal .card').getBoundingClientRect();
-    const lines = [...document.querySelectorAll('#umKeyCurrent .key-line')].map(line => {
-      const box = line.getBoundingClientRect();
-      return { text: line.textContent, title: line.title, top: box.top,
-        inside: box.left >= dialog.left - .5 && box.right <= dialog.right + .5,
-        cut: line.scrollWidth > line.clientWidth };
-    });
-    const note = document.getElementById('umKeyLegacyNote');
-    return { lines, separate: lines.length === 2 && lines[0].top < lines[1].top,
-      note: note.textContent, noteVisible: note.offsetParent !== null,
-      noteCut: note.scrollWidth > note.clientWidth };
-  })()`);
-  check(`${label}: legacy editor lists both keys and the replacement note without cuts`,
-    editor.lines.length === 2 && editor.separate && editor.lines.every(line =>
-      line.inside && !line.cut && line.title.includes("SHA256:Legacy")) &&
-    editor.noteVisible && !editor.noteCut && editor.note ===
-    "From an older version. All of these can sign in. Choose, paste, or generate one key to replace them.",
-  JSON.stringify(editor));
-  await screenshot(`legacy-keys-${label.replace(/\W+/g, "-")}`);
-  await click("#umCancel");
-
-  await click("#userRows tr:nth-child(4) td:first-child");
-  await waitFor("document.getElementById('userHoverCard').style.display === 'block'", 2000);
-  const signIn = await evaluate("[...document.querySelectorAll('#userHoverCard .hover-section')][0].textContent.replace('Sign-in', '')");
-  check(`${label}: legacy hover card says two keys are from an older version`,
-    signIn === "Signs in with a public key (2 keys from an older version)", signIn);
-  await click(".col:nth-child(2) .pane-title");
 }
 
 async function showNotice(helpers) {
@@ -402,7 +343,7 @@ export default async function layout(helpers) {
                  permissions: all(k => k === 'list') });
     users.push({ ...u, username: 'keyuser', auth: 'key',
                   key: {type: 'ed25519', comment: '${KEYUSER_COMMENT}', fingerprint: 'SHA256:KeyuserFingerPrintIsLongEnoughForTheTitle'} });
-    users.push({ ...u, username: 'legacykeys', auth: 'key', key: ${JSON.stringify(LEGACY_KEYS[0])}, keys: ${JSON.stringify(LEGACY_KEYS)} });
+    users.push({ ...u, username: 'multikeys', auth: 'key', key: ${JSON.stringify(MULTI_KEYS[0])}, keys: ${JSON.stringify(MULTI_KEYS)}, key_count: 2 });
     users.push({ ...u, username: 'allaccess', permissions: all(() => true) });
     users.push({ ...u, username: 'noaccess', permissions: all(() => false) });
     for (let i = 1; i <= 20; i += 1) users.push({ ...u, username: 'scrolluser' + i, home: 'D:\\\\Shares\\\\Team\\\\' + i });
@@ -422,7 +363,6 @@ export default async function layout(helpers) {
   await measureBar(helpers, "full width", emptyHeight);
   await screenshot("layout-full-width", 0);
   await checkEditor(helpers, "full width", "editor-full-width");
-  await checkLegacyKeysEditor(helpers, "full width");
 
   await evaluate(`document.querySelector('.app').style.width='${NARROW_PX}px'`);
   await measure(helpers, `${NARROW_PX}px`);
@@ -431,11 +371,10 @@ export default async function layout(helpers) {
   await measureBar(helpers, `${NARROW_PX}px`, emptyHeight);
   await screenshot("layout-narrow", 0);
   await checkEditor(helpers, `${NARROW_PX}px`, "editor-narrow");
-  await checkOneKeyEditor(helpers);
-  await checkLegacyKeysEditor(helpers, `${NARROW_PX}px`);
+  await checkMultiKeyEditor(helpers);
 
   // Delete from the Manage dialog, for real, keeping the folder. The reply
-  // replaces the page's list with the saved one, so the page-only users go too.
+  // The reply sets the page's list to the saved one, so the page-only users go too.
   await evaluate("document.querySelector('.app').style.width=''");
   await click("#userRows tr:first-child td.act button");
   const m = await evaluate(`({ title: document.getElementById('umTitle').textContent,

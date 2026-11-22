@@ -24,8 +24,9 @@ If you enjoyed this project and would like to buy me a coffee, check out my [Ko-
   jail so each user only ever sees inside their own folder.
 - Three access modes per user: read-only, read & write, or upload-only
   (a drop box). Deleting and renaming is off unless you allow it.
-- Sign-in by password, public key, or either one. Each user has one public
-  key: picked from a .pub file (PuTTYgen's saved format is converted),
+- Sign-in by password, public key, or either one. Each user can have up to 25
+  public keys, each with a friendly name, for example one per computer. Keys
+  can be picked from a .pub file (PuTTYgen's saved format is converted),
   pasted, or made with the built-in Ed25519 (default) or RSA-4096 key
   generator.
 - Connection card: LAN address, on-demand public IP, port, and the host-key
@@ -140,8 +141,9 @@ pipeline from this repo. You can also check the file against the published
 5. For a key user, the safest route is to have them make their own key pair
    and send you only the .pub file: pick it with Choose file... or paste it.
    Or generate an Ed25519 or RSA key pair for them and hand them the private
-   key. A new key replaces the user's current key when you click Save. The
-   generated key files stay on disk even if you then cancel.
+   key. Add keys to the user's list, rename them, or remove them. Those
+   changes take effect when you click Save. The generated key files stay on
+   disk even if you then cancel.
 
 Uploaded files keep their original modified date when the client asks for it,
 as WinSCP does with its Preserve timestamp option (on by default). The server

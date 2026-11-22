@@ -2,6 +2,7 @@ import base64
 import binascii
 import os
 import re
+import unicodedata
 
 import paramiko
 
@@ -36,7 +37,7 @@ def _read_rfc4716_key(text):
     end = "---- END SSH2 PUBLIC KEY ----"
     begin_indexes = [index for index, line in enumerate(lines) if line.strip() == begin]
     if len(begin_indexes) > 1:
-        return None, "This holds more than one key. This app uses one key per user."
+        return None, "This SSH2 key block cannot be combined with other keys."
 
     begin_index = begin_indexes[0]
     end_index = next(
@@ -49,7 +50,7 @@ def _read_rfc4716_key(text):
     for line in lines[:begin_index] + lines[end_index + 1:]:
         stripped = line.strip()
         if stripped and not stripped.startswith("#"):
-            return None, "This holds more than one key. This app uses one key per user."
+            return None, "This SSH2 key block cannot be combined with other keys."
 
     headers = {}
     body = []
@@ -94,28 +95,6 @@ def _read_rfc4716_key(text):
     line = f"{key_type} {base64.b64encode(blob).decode('ascii')}"
     if comment:
         line += f" {comment}"
-    if not is_valid_key(line):
-        return None, INVALID_KEY_MESSAGE
-    return line, None
-
-
-def read_one_key(text):
-    """Read exactly one OpenSSH public-key line without exposing rejected text."""
-    text = text if isinstance(text, str) else ""
-    if any(re.fullmatch(r"-----BEGIN(?: [A-Za-z]+)* PRIVATE KEY-----", line.strip())
-           for line in text.splitlines()) or text.lstrip().startswith("PuTTY-User-Key-File-"):
-        return None, "That is a private key. Choose the .pub file next to it instead."
-    if any(line.strip() == "---- BEGIN SSH2 PUBLIC KEY ----" for line in text.splitlines()):
-        return _read_rfc4716_key(text)
-
-    lines = [line.strip() for line in text.splitlines()
-             if line.strip() and not line.strip().startswith("#")]
-    if not lines:
-        return None, "No public key found."
-    if len(lines) > 1:
-        return None, "This holds more than one key. This app uses one key per user."
-
-    line = " ".join(lines[0].split())
     if not is_valid_key(line):
         return None, INVALID_KEY_MESSAGE
     return line, None
@@ -168,6 +147,48 @@ def key_identity(line):
     return parts[0], parts[1]
 
 
+def _key_name(line):
+    """Return the comment portion of an OpenSSH key line."""
+    if not isinstance(line, str):
+        return ""
+    parts = line.split(maxsplit=2)
+    return parts[2] if len(parts) == 3 else ""
+
+
+def clean_key_name(line):
+    """Remove unsafe characters and normalize the name in a key line."""
+    match = re.match(r"^(\S+\s+\S+)(?:\s+(.*))?$", line)
+    if not match:
+        return line, None
+    prefix, name = match.groups()
+    name = name or ""
+    without_controls = "".join(
+        char for char in name if unicodedata.category(char) not in {"Cc", "Cf"})
+    cleaned = " ".join(without_controls.split())
+    hidden_removed = without_controls != name
+    shortened = len(cleaned) > 100
+    if shortened:
+        cleaned = cleaned[:100].rstrip()
+    if not hidden_removed and not shortened and cleaned == name:
+        return line, None
+    note_parts = []
+    if hidden_removed:
+        note_parts.append("Hidden characters were removed from the name.")
+    if shortened:
+        note_parts.append("The name was shortened to 100 characters.")
+    return prefix + (f" {cleaned}" if cleaned else ""), " ".join(note_parts) or "The name was cleaned."
+
+
+def key_name_problem(line):
+    """Return a safe error when a key name cannot be stored."""
+    name = _key_name(line)
+    if any(unicodedata.category(char) in {"Cc", "Cf"} for char in name):
+        return "The key name contains hidden characters."
+    if len(" ".join(name.split())) > 100:
+        return "The key name can be at most 100 characters."
+    return None
+
+
 def _load_key(line):
     key_type, encoded, *_ = line.split()
     return paramiko.PKey.from_type_string(key_type, base64.b64decode(encoded, validate=True))
@@ -196,20 +217,6 @@ def describe_key(line):
         "comment": " ".join(parts[2:]),
         "fingerprint": fingerprint,
     }
-
-
-def read_key_file(path):
-    """Read a small UTF-8 public-key file, keeping its contents out of errors."""
-    try:
-        if os.path.getsize(path) > 64 * 1024:
-            return None, "That file is too large to be a public key."
-        with open(path, "r", encoding="utf-8-sig") as f:
-            text = f.read()
-    except UnicodeDecodeError:
-        return None, INVALID_KEY_MESSAGE
-    except OSError as e:
-        return None, friendly_error(e)
-    return read_one_key(text)
 
 
 def read_keys_file(path):

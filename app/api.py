@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from app import paths
 from app.atomic import atomic_write_json
-from app.constants import ALLOWED_URL_HOST, DEFAULT_PORT, GITHUB_REPO
+from app.constants import ALLOWED_URL_HOST, DEFAULT_PORT, GITHUB_REPO, MAX_KEYS_PER_USER
 from app.debug_log import debug, describe_error, describe_failure
 from app.helpers import fingerprint_sha256, friendly_error
 from app.server import DEFAULT_PERMISSIONS, QUICK_PERMISSIONS, SFTPService, perms_for
@@ -17,7 +17,15 @@ from app.services.keygen import generate_keypair as _generate_keypair
 from app.services.network import lan_ip, port_is_free, public_ip, valid_port
 from app.services.passwords import generate_password, hash_password
 from app.services.prefs import load_prefs, save_prefs
-from app.services.pubkeys import describe_key, read_key_file, read_one_key
+from app.services.pubkeys import (
+    clean_key_name,
+    describe_key,
+    is_valid_key,
+    key_identity,
+    key_name_problem,
+    read_keys,
+    read_keys_file,
+)
 from app.services.safety import blocked_reason
 from app.services.updates import check_update as _check_update
 from app.services.usernames import validate_username
@@ -157,15 +165,25 @@ class Api:
             for stored_key in u.get("authorized_keys", []):
                 if not isinstance(stored_key, str) or not stored_key.strip():
                     continue
-                described = describe_key(stored_key)
-                if described is not None:
-                    keys.append(described)
+                normalized = " ".join(stored_key.split())
+                valid = is_valid_key(normalized)
+                described = describe_key(normalized) if valid else None
+                keys.append({"line": stored_key, "valid": valid,
+                             "type": described["type"] if described else "",
+                             "comment": described["comment"] if described else "",
+                             "fingerprint": described["fingerprint"] if described else "",
+                             "name_problem": key_name_problem(stored_key)})
+            valid_keys = [key for key in keys if key["valid"]]
             out.append({"username": u.get("username"), "home": u.get("home"),
                         "permissions": perms_for(u),
                         "auth": u.get("auth", "password"),
                         "has_password": bool(u.get("password_hash")),
-                        "key": keys[0] if keys else None,
+                        "key": ({"type": valid_keys[0]["type"],
+                                 "comment": valid_keys[0]["comment"],
+                                 "fingerprint": valid_keys[0]["fingerprint"]}
+                                if valid_keys else None),
                         "keys": keys,
+                        "key_count": len(valid_keys),
                         "managed_folder": bool(u.get("managed_folder"))})
         return out
 
@@ -204,10 +222,10 @@ class Api:
             if not res:
                 return {"ok": False}
             path = res[0] if isinstance(res, (list, tuple)) else res
-            line, error = read_key_file(path)
+            lines, error = read_keys_file(path)
             if error:
                 return {"ok": False, "error": error}
-            return {"ok": True, "key": line, "described": describe_key(line)}
+            return {"ok": True, "keys": self._key_results(lines)}
         except Exception as e:
             return {"ok": False, "error": friendly_error(e)}
 
@@ -271,6 +289,31 @@ class Api:
         if not any(permissions.values()):
             return {"ok": False, "error": "Grant the user at least one permission."}
         auth = p.get("auth", "password")
+        authorized_keys = None
+        if auth in ("key", "both"):
+            authorized_keys = p.get("authorized_keys")
+            if not isinstance(authorized_keys, list) or not all(
+                    isinstance(key, str) for key in authorized_keys):
+                return {"ok": False, "error": "The key list could not be read. Close this window and try again."}
+            validated_keys = []
+            for position, key in enumerate(authorized_keys, start=1):
+                parsed, error = read_keys(key)
+                if error or len(parsed) != 1:
+                    return {"ok": False,
+                            "error": f"Key {position} is not a valid public key. Remove it before saving."}
+                if key_name_problem(parsed[0]):
+                    return {"ok": False,
+                            "error": f"Key {position} has an invalid name. Rename it before saving."}
+                validated_keys.append(parsed[0])
+            deduplicated_keys = []
+            seen_identities = set()
+            for key in validated_keys:
+                identity = key_identity(key)
+                if identity not in seen_identities:
+                    seen_identities.add(identity)
+                    deduplicated_keys.append(key)
+            if not deduplicated_keys:
+                return {"ok": False, "error": "Add at least one public key (or switch to password auth)."}
         with self._cfg_lock:
             cfg = self._load_config()
             users = cfg.get("users", [])
@@ -278,6 +321,22 @@ class Api:
                 if u.get("username") == username and username != (original or ""):
                     return {"ok": False, "error": "A user with that name already exists."}
             existing = next((u for u in users if u.get("username") == (original or username)), None)
+            if auth in ("key", "both") and len(deduplicated_keys) > MAX_KEYS_PER_USER:
+                existing_identities = {
+                    key_identity(key) for key in existing.get("authorized_keys", [])
+                    if isinstance(key, str) and key_identity(key) is not None
+                } if existing else set()
+                if not all(key_identity(key) in existing_identities for key in deduplicated_keys):
+                    return {"ok": False,
+                            "error": "A user can have at most 25 keys. Remove one before adding another."}
+            old_username = existing.get("username") if existing else None
+            old_home = existing.get("home") if existing else None
+            old_permissions = perms_for(existing) if existing else None
+            old_auth = existing.get("auth", "password") if existing else None
+            old_identities = {
+                key_identity(key) for key in existing.get("authorized_keys", [])
+                if isinstance(key, str) and key_identity(key) is not None
+            } if existing else set()
             # Capture the prior home and managed state before rec (which may
             # be the same dict as existing) gets overwritten below.
             prev_home = existing.get("home", "") if existing else ""
@@ -313,16 +372,7 @@ class Api:
             else:
                 rec.pop("password_hash", None)
             if auth in ("key", "both"):
-                public_key = p.get("public_key")
-                if not isinstance(public_key, str):
-                    public_key = ""
-                if not public_key.strip() and not rec.get("authorized_keys"):
-                    return {"ok": False, "error": "Add at least one public key (or switch to password auth)."}
-                if public_key.strip():
-                    line, error = read_one_key(public_key)
-                    if error:
-                        return {"ok": False, "error": error}
-                    rec["authorized_keys"] = [line]
+                rec["authorized_keys"] = deduplicated_keys
             else:
                 rec.pop("authorized_keys", None)
             if existing is None:
@@ -332,12 +382,21 @@ class Api:
             if not self._save_config(cfg):
                 return {"ok": False, "error": "Could not write the config file."}
         debug._log("user saved", {"permissions": permissions, "auth": auth})
+        access_changed = existing is None or any((
+            old_username != username,
+            old_home != home,
+            old_permissions != permissions,
+            old_auth != auth,
+            bool(plain),
+            old_identities != {key_identity(key) for key in rec.get("authorized_keys", [])},
+        ))
         dropped = 0
-        if existing is not None:
+        if existing is not None and access_changed:
             for nm in {original or username, username}:
                 if nm:
                     dropped += self._service.disconnect_user(nm)
-        return {"ok": True, "users": self._public_users(cfg), "disconnected": dropped}
+        return {"ok": True, "users": self._public_users(cfg), "disconnected": dropped,
+                "access_changed": access_changed}
 
     def delete_user(self, username, delete_folder=False):
         with self._cfg_lock:
@@ -373,10 +432,19 @@ class Api:
         return _generate_keypair(key_type, out_path, passphrase, username, overwrite)
 
     def check_public_key(self, text):
-        line, error = read_one_key(text)
+        lines, error = read_keys(text)
         if error:
             return {"ok": False, "error": error}
-        return {"ok": True, "key": line, "described": describe_key(line)}
+        return {"ok": True, "keys": self._key_results(lines)}
+
+    @staticmethod
+    def _key_results(lines):
+        """Describe key lines after normalizing their display names."""
+        results = []
+        for line in lines:
+            cleaned, note = clean_key_name(line)
+            results.append({"key": cleaned, "described": describe_key(cleaned), "note": note})
+        return results
 
     def browse_save_key(self, suggested):
         try:
