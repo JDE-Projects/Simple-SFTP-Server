@@ -6,7 +6,8 @@
 // tags, user names, and Manage buttons inside the panel. Its hover card shows
 // complete user details and stays within the Users panel at full and narrow
 // widths. It also retains the editor, delete-flow, bottom-bar, and Public IP
-// layout checks. The page-only users are never saved.
+// layout checks, including saved-key on/off behavior. The page-only users are
+// never saved.
 //
 // The long path and permissions are set on the page's copy of the user list
 // only (nothing is saved). Last, the fixture's user is deleted for real from
@@ -25,9 +26,9 @@ const MULTI_KEYS = [
 // Hover text on each row's sign-in label, in the order the test users are added.
 const EXPECTED_HOVER = [
   "Signs in with a password",
-  "Signs in with a password or a public key (ed25519, alice@laptop)",
-  `Signs in with a public key (ed25519, ${KEYUSER_COMMENT})`,
-  "Signs in with a public key (2 keys)",
+  "Signs in with a password or a public key. Keys: 1 on",
+  "Signs in with a public key. Keys: 1 on",
+  "Signs in with a public key. Keys: 2 on, 1 off",
 ];
 
 const PERMISSION_LABELS = [
@@ -262,11 +263,11 @@ async function checkMultiKeyEditor(helpers) {
         rows[0].textContent.includes('ed25519') && rows[0].textContent.includes('first') && rows[1].textContent.includes('(no name)'); })()`));
     const narrow = await evaluate(`(() => { document.querySelector('.app').style.width='${NARROW_PX}px'; const list=document.getElementById('umKeyList'); const rows=[...list.querySelectorAll('.key-row')]; return rows.every(row => row.getBoundingClientRect().right <= list.getBoundingClientRect().right + 1) && rows[0].title.includes('SHA256:'); })()`);
     check("W2 full and narrow rows stay contained and title long text", narrow);
-    // Screenshots of filled rows: a named key, an unnamed key, a long name, a
+    // Screenshots of filled rows: a named key, an unnamed key turned off, a long name, a
     // name that must be renamed, and an invalid entry, in both themes.
     const showRows = `(() => { workingKeys = [
       { line:'ssh-ed25519 shot-a alice@laptop', valid:true, type:'ed25519', comment:'alice@laptop', fingerprint:'SHA256:Abc123Def456Ghi789Jkl012Mno345Pqr678Stu901', name_problem:null },
-      { line:'ssh-rsa shot-b', valid:true, type:'rsa', comment:'', fingerprint:'SHA256:Zyx987Wvu654Tsr321Qpo098Nml765Kji432Hgf109', name_problem:null },
+      { line:'ssh-rsa shot-b', valid:true, type:'rsa', comment:'', fingerprint:'SHA256:Zyx987Wvu654Tsr321Qpo098Nml765Kji432Hgf109', name_problem:null, enabled:false },
       { line:'ssh-ed25519 shot-c long', valid:true, type:'ed25519', comment:'build-server-in-the-basement-rack-two-with-a-deliberately-long-friendly-name-for-truncation', fingerprint:'SHA256:Lmn456Opq789Rst012Uvw345Xyz678Abc901Def234', name_problem:null },
       { line:'ssh-ed25519 shot-d odd', valid:true, type:'ed25519', comment:'odd name', fingerprint:'SHA256:Qrs111Tuv222Wxy333Zab444Cde555Fgh666Ijk777', name_problem:'The key name contains hidden characters.' },
       { line:'garbage', valid:false, type:'', comment:'', fingerprint:'', name_problem:null },
@@ -281,7 +282,7 @@ async function checkMultiKeyEditor(helpers) {
     await evaluate("document.getElementById('theme-btn').click()");
     await evaluate(`(() => { workingKeys = Array.from({length:25}, (_, i) => ({ line:'ssh-ed25519 many-'+i+' key-'+i, valid:true, type:'ed25519', comment:'key-'+i, fingerprint:'SHA256:many-'+i, name_problem:null })); renderKeyList(); })()`);
     await evaluate("document.getElementById('umKeys').value='ssh-ed25519 extra-data extra'");await click("#umKeyAdd");
-    check("W3 25 keys stay usable and Add refuses the limit", await evaluate("document.getElementById('umKeyCount').textContent === '25 of 25 keys' && document.getElementById('umKeyList').scrollHeight >= document.getElementById('umKeyList').clientHeight && document.getElementById('umKeyErr').textContent.includes('at most 25')"));
+    check("W3 25 keys stay usable and Add refuses the limit", await evaluate("document.getElementById('umKeyCount').textContent === '25 keys (up to 25)' && document.getElementById('umKeyList').scrollHeight >= document.getElementById('umKeyList').clientHeight && document.getElementById('umKeyErr').textContent.includes('at most 25')"));
     await evaluate("openUser({...window.__multiUser, keys:[{line:'bad',valid:false,type:'',comment:'',fingerprint:'',name_problem:null}]});setAuth('key')");await click("#umSave");
     check("W4 invalid stored entry blocks Save", await evaluate("document.getElementById('umKeyErr').textContent === 'Remove the key marked Not a valid key before saving.'"));
     await evaluate("openUser(window.__multiUser);setAuth('key')");await click("#umKeyList .key-remove");await evaluate("closeModal('userModal');openUser(window.__multiUser);setAuth('key')");const restored=await evaluate("workingKeys.length === 2");await click("#umKeyList .key-remove");await evaluate("window.__multi.saved=null");await click("#umSave");
@@ -305,10 +306,39 @@ async function checkMultiKeyEditor(helpers) {
     await evaluate("cur={connections:[{user:'multikey',active:0}]};openUser(window.__multiUser);setAuth('key');document.getElementById('umKeys').value='ssh-ed25519 warning-data warning'");await click("#umSave");const warned=await evaluate("document.getElementById('confirmModal').classList.contains('show')");await click("#cfCancel");await evaluate("openUser(window.__multiUser);setAuth('key');window.__multi.saved=null");await click("#umSave");
     check("W12 added key warns for a live user, rename-only does not", warned && await evaluate("window.__multi.saved !== null && !document.getElementById('confirmModal').classList.contains('show')"));
     const hover=await evaluate("authHover({...window.__multiUser,key_count:1})+'|'+authHover(window.__multiUser)+'|'+document.body.innerText.includes('older'+' version')");
-    check("W13 hover names one key, counts several, and has no old wording", hover.includes('(ed25519, first)') && hover.includes('(2 keys)') && hover.endsWith('|false'), hover);
+    check("W13 hover counts keys the same way for one or several, with no key type and no old wording", hover === 'Signs in with a public key. Keys: 1 on|Signs in with a public key. Keys: 2 on|false', hover);
     await evaluate("openUser(window.__multiUser);setAuth('key');document.getElementById('umKeys').value='ssh-ed25519 delayed-data delayed'");await click("#umKeyAdd");await evaluate("closeModal('userModal');openUser(window.__multiUser);window.__multi.delayed()")
     await waitFor("!keyBusy", 2000);
     check("W14 stale Add reply does not change a reopened window", await evaluate("workingKeys.length === 2 && !workingKeys.some(key => key.line.includes('delayed-data'))"));
+    await evaluate("openUser({...window.__multiUser,keys:[...window.__multiUser.keys,{line:'bad',valid:false,type:'',comment:'',fingerprint:'',name_problem:null}]});setAuth('key')");
+    check("W15 each valid row has a switch before Remove and the invalid entry has none", await evaluate(`(() => {
+      const rows=[...document.querySelectorAll('#umKeyList .key-row')]; return rows.slice(0,2).every(row=>{
+        const sw=row.querySelector('.key-toggle');const remove=row.querySelector('.key-remove');return sw&&remove&&sw.compareDocumentPosition(remove)&Node.DOCUMENT_POSITION_FOLLOWING;
+      })&&!rows[2].querySelector('.key-toggle'); })()`));
+    await evaluate("openUser({ ...window.__multiUser, key_count: 1, off_count: 1, keys: [{ ...window.__multiUser.keys[0], enabled: true }, { ...window.__multiUser.keys[1], enabled: false }] });setAuth('key')");
+    check("W16 a stored off key opens with its switch off and its row dimmed", await evaluate("!document.querySelectorAll('#umKeyList .key-toggle input')[1].checked && document.querySelectorAll('#umKeyList .key-row')[1].classList.contains('key-off')"));
+    await evaluate("cur=null;openUser(window.__multiUser);setAuth('key');window.__multi.saved=null;document.querySelectorAll('#umKeyList .key-toggle input')[0].click()");await click("#umSave");await waitFor("window.__multi.saved !== null",2000);
+    const offSaved=await evaluate("window.__multi.saved.disabled_keys.some(key=>key.includes('first-data'))&&!window.__multi.saved.authorized_keys.some(key=>key.includes('first-data'))");
+    await evaluate("openUser({ ...window.__multiUser, key_count: 1, off_count: 1, keys: [{ ...window.__multiUser.keys[0], enabled: false }, { ...window.__multiUser.keys[1], enabled: true }] });setAuth('key');window.__multi.saved=null;document.querySelectorAll('#umKeyList .key-toggle input')[0].click()");await click("#umSave");await waitFor("window.__multi.saved !== null",2000);
+    check("W17 Save sends off keys only in disabled_keys and on keys only in authorized_keys", offSaved&&await evaluate("window.__multi.saved.authorized_keys.some(key=>key.includes('first-data'))&&!window.__multi.saved.disabled_keys.some(key=>key.includes('first-data'))"));
+    await evaluate("openUser({ ...window.__multiUser, key_count: 1, off_count: 1, keys: [{ ...window.__multiUser.keys[0], enabled: true }, { ...window.__multiUser.keys[1], enabled: false }] });setAuth('key');document.querySelectorAll('#umKeyList .key-toggle input')[1].click();closeModal('userModal');openUser({ ...window.__multiUser, key_count: 1, off_count: 1, keys: [{ ...window.__multiUser.keys[0], enabled: true }, { ...window.__multiUser.keys[1], enabled: false }] });setAuth('key')");
+    check("W18 Cancel after flipping a switch restores the stored state when reopened", await evaluate("!document.querySelectorAll('#umKeyList .key-toggle input')[1].checked"));
+    await evaluate("openUser({ ...window.__multiUser, key_count: 0, off_count: 2, key: null, keys: window.__multiUser.keys.map(key=>({...key,enabled:false})) });setAuth('key');window.__multi.saved=null");await click("#umSave");
+    check("W19 every key off stops Save before the back end", await evaluate("document.getElementById('umKeyErr').textContent === 'Turn on at least one key (or switch to password auth).' && window.__multi.saved === null"));
+    await evaluate("cur={connections:[{user:'multikey',active:0}]};openUser(window.__multiUser);setAuth('key');document.querySelectorAll('#umKeyList .key-toggle input')[0].click();window.__multi.saved=null");await click("#umSave");
+    const toggleWarned=await evaluate("document.getElementById('confirmModal').classList.contains('show')");await click("#cfCancel");
+    const offRenameOnly=await evaluate("(() => { openUser({ ...window.__multiUser, key_count: 1, off_count: 1, keys: [{ ...window.__multiUser.keys[0], enabled: true }, { ...window.__multiUser.keys[1], enabled: false }] }); setAuth('key'); workingKeys[1].line='ssh-rsa second-data renamed'; workingKeys[1].comment='renamed'; return !changesAccess({username:'multikey',home:'C:\\\\keys',auth:'key',password:'',permissions:getPermissions(),authorized_keys:[workingKeys[0].line],disabled_keys:[workingKeys[1].line]}); })()");
+    check("W20 turning a key off warns for a live user and renaming only an off key does not", toggleWarned&&offRenameOnly);
+    await evaluate("openUser({ ...window.__multiUser, key_count: 1, off_count: 2, key: window.__multiUser.key, keys: [{ ...window.__multiUser.keys[0], enabled: true }, { ...window.__multiUser.keys[1], enabled: false }, { ...window.__multiUser.keys[1], line: 'ssh-rsa third-data third', comment: 'third', enabled: false }] });setAuth('key')");
+    check("W21 count line, row labels, and hover card show off-key wording", await evaluate("document.getElementById('umKeyCount').textContent === '3 keys, 2 off (up to 25)' && [...document.querySelectorAll('#umKeyList .key-state')].map(el=>el.textContent).join() === 'On,Off,Off' && [...document.querySelectorAll('#umKeyList .key-fingerprint')].every(el=>el.textContent.startsWith('ID ')) && authHover({auth:'key',key_count:3,off_count:1}) === 'Signs in with a public key. Keys: 3 on, 1 off' && authHover({auth:'both',key_count:1,off_count:0}) === 'Signs in with a password or a public key. Keys: 1 on' && authHover({auth:'key',key_count:0,off_count:2}) === 'Signs in with a public key. Keys: 0 on, 2 off' && authHover({auth:'key',key_count:0,off_count:0}) === 'Signs in with a public key. Keys: none'"));
+    const switchedRows=await evaluate(`(() => { const list=document.getElementById('umKeyList'); const inside=()=>[...list.querySelectorAll('.key-row')].every(row=>row.getBoundingClientRect().right<=list.getBoundingClientRect().right+1); const full=inside(); document.querySelector('.app').style.width='${NARROW_PX}px'; const narrow=inside(); document.querySelector('.app').style.width=''; return full&&narrow; })()`);
+    check("W22 a row with a switch stays inside the list at full and narrow width", switchedRows);
+    await evaluate("cur=null;openUser(window.__multiUser);setAuth('password');window.__multi.saved=null");await click("#umSave");
+    const lossText=await evaluate("document.getElementById('confirmModal').classList.contains('show') ? document.getElementById('cfTitle').textContent+'|'+document.getElementById('cfText').textContent : 'no warning'");
+    await click("#cfCancel");const notSaved=await evaluate("window.__multi.saved === null");
+    await evaluate("openUser({...window.__multiUser,auth:'password',key_count:0,keys:[]});setAuth('password');document.getElementById('umPw').value='a-test-password-1';window.__multi.saved=null");await click("#umSave");await waitFor("window.__multi.saved !== null",2000);
+    const noKeysNoWarning=await evaluate("!document.getElementById('confirmModal').classList.contains('show')");
+    check("W23 switching to password only warns that the keys will be deleted, Cancel saves nothing, and a user with no keys gets no warning", lossText.startsWith("Delete saved keys?|Password only sign-in deletes the 2 public keys") && notSaved && noKeysNoWarning, lossText);
     await evaluate("closeModal('userModal');document.querySelector('.app').style.width=''");
   } finally {
     await evaluate("API.pick_key_file=window.__multiOriginalApi.pick_key_file;API.check_public_key=window.__multiOriginalApi.check;API.generate_keypair=window.__multiOriginalApi.generate_keypair;API.save_user=window.__multiOriginalApi.save_user;delete window.__multiOriginalApi;delete window.__multi;delete window.__multiUser;");
@@ -339,11 +369,11 @@ export default async function layout(helpers) {
     u.home = 'C:\\\\Users\\\\someone\\\\Documents\\\\Shared with the team\\\\Quarterly reports and invoices\\\\2026\\\\incoming';
     u.permissions = all(k => k !== 'delete_dir');
     users.push({ ...u, username: 'thirty-two-character-user-name-x', auth: 'both',
-                  key: {type: 'ed25519', comment: 'alice@laptop', fingerprint: 'SHA256:BothUserFingerPrintIsLongEnoughForTheTitle'},
+                  key: {type: 'ed25519', comment: 'alice@laptop', fingerprint: 'SHA256:BothUserFingerPrintIsLongEnoughForTheTitle'}, key_count: 1,
                  permissions: all(k => k === 'list') });
     users.push({ ...u, username: 'keyuser', auth: 'key',
-                  key: {type: 'ed25519', comment: '${KEYUSER_COMMENT}', fingerprint: 'SHA256:KeyuserFingerPrintIsLongEnoughForTheTitle'} });
-    users.push({ ...u, username: 'multikeys', auth: 'key', key: ${JSON.stringify(MULTI_KEYS[0])}, keys: ${JSON.stringify(MULTI_KEYS)}, key_count: 2 });
+                  key: {type: 'ed25519', comment: '${KEYUSER_COMMENT}', fingerprint: 'SHA256:KeyuserFingerPrintIsLongEnoughForTheTitle'}, key_count: 1 });
+    users.push({ ...u, username: 'multikeys', auth: 'key', key: ${JSON.stringify(MULTI_KEYS[0])}, keys: ${JSON.stringify(MULTI_KEYS)}, key_count: 2, off_count: 1 });
     users.push({ ...u, username: 'allaccess', permissions: all(() => true) });
     users.push({ ...u, username: 'noaccess', permissions: all(() => false) });
     for (let i = 1; i <= 20; i += 1) users.push({ ...u, username: 'scrolluser' + i, home: 'D:\\\\Shares\\\\Team\\\\' + i });

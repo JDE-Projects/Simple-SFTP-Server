@@ -194,6 +194,13 @@
   .key-row .key-name:hover,.key-row .key-name:focus-visible{color:var(--accent);}
   .key-row .key-name.empty{color:var(--text-dim);}
   .key-row .key-rename{min-width:0;flex:1 1 auto;}
+  .key-row .key-toggle{flex:0 0 auto;}
+  .key-row .key-toggle .switch{width:28px;height:15px;}
+  .key-row .key-toggle .switch::after{width:11px;height:11px;}
+  .key-row .key-toggle input:checked + .switch::after{left:14px;}
+  .key-row .key-toggle{gap:5px;}
+  .key-row .key-state{font-size:11px;color:var(--text-dim);min-width:22px;}
+  .key-row.key-off .key-type,.key-row.key-off .key-name,.key-row.key-off .key-fingerprint{opacity:.45;}
   .key-row .key-remove{flex:0 0 auto;}
   .key-note{font-size:10px;color:var(--text-dim);margin:-2px 0 1px;}
   .errline.info{color:var(--text-dim);}
@@ -537,17 +544,12 @@ function permissionTag(p){
 const AUTHLBL={password:"PW",key:"Key",both:"PW or Key"};
 // Full sign-in wording for the Users table's accessible label and hover card.
 function authHover(u){
-  const count=Number.isInteger(u.key_count)?u.key_count:(Array.isArray(u.keys)?u.keys.filter(k=>k.valid!==false).length:0);
-  if(count>1){
-    const plural=" ("+count+" keys)";
-    if(u.auth==="password") return "Signs in with a password";
-    if(u.auth==="key") return "Signs in with a public key"+plural;
-    return "Signs in with a password or a public key"+plural;
-  }
-  const key=u.key?" ("+u.key.type+(u.key.comment?", "+u.key.comment:"")+")":" (no key on file)";
+  const count=Number.isInteger(u.key_count)?u.key_count:(Array.isArray(u.keys)?u.keys.filter(k=>k.valid!==false&&k.enabled!==false).length:0);
+  const offCount=Number.isInteger(u.off_count)?u.off_count:(Array.isArray(u.keys)?u.keys.filter(k=>k.valid!==false&&k.enabled===false).length:0);
+  const keys=". Keys: "+(count||offCount?count+" on"+(offCount?", "+offCount+" off":""):"none");
   if(u.auth==="password") return "Signs in with a password";
-  if(u.auth==="key") return "Signs in with a public key"+key;
-  return "Signs in with a password or a public key"+key;
+  if(u.auth==="key") return "Signs in with a public key"+keys;
+  return "Signs in with a password or a public key"+keys;
 }
 
 function keyDescription(key,shortFingerprint){
@@ -562,23 +564,30 @@ function keyDescription(key,shortFingerprint){
   return text;
 }
 function keyIdentity(line){const parts=String(line||"").trim().split(/\s+/);return parts.length>=2?parts[0]+" "+parts[1]:"";}
-function keyFromResult(result){return {line:result.key,valid:true,type:result.described.type,comment:result.described.comment||"",fingerprint:result.described.fingerprint||"",name_problem:null};}
+function keyFromResult(result){return {line:result.key,valid:true,enabled:true,type:result.described.type,comment:result.described.comment||"",fingerprint:result.described.fingerprint||"",name_problem:null};}
 function setKeyMessage(message,info){const el=$("umKeyErr");el.textContent=message||"";el.classList.toggle("info",!!info);}
 function activeKeySession(token){return token===keySession&&$("userModal").classList.contains("show");}
 function setKeyBusy(on){keyBusy=on;$("umKeyAdd").disabled=on;$("umSave").disabled=on;}
 function keyHasProblem(){return workingKeys.some(key=>!key.valid||key.name_problem);}
 function renderKeyList(){
   const list=$("umKeyList");list.replaceChildren();
-  $("umKeyCount").textContent=workingKeys.length?workingKeys.length+" of 25 keys":"";
+  const offCount=workingKeys.filter(key=>key.enabled===false).length;
+  $("umKeyCount").textContent=workingKeys.length?workingKeys.length+(workingKeys.length===1?" key":" keys")+(offCount?", "+offCount+" off":"")+" (up to 25)":"";
   if(!workingKeys.length){const empty=document.createElement("div");empty.className="meta";empty.style.color="var(--text-dim)";empty.textContent="No keys yet.";list.append(empty);return;}
   workingKeys.forEach((key,index)=>{
     const wrap=document.createElement("div");
-    const row=document.createElement("div");row.className="key-row";row.title=key.valid?keyDescription(key,false):"Not a valid key";
+    const row=document.createElement("div");row.className="key-row"+(key.enabled===false?" key-off":"");row.title=key.valid?keyDescription(key,false):"Not a valid key";
     if(!key.valid){const bad=document.createElement("span");bad.className="meta";bad.style.color="var(--red)";bad.textContent="Not a valid key";row.append(bad);}
     else{
       const type=document.createElement("span");type.className="key-type";type.textContent=key.type;row.append(type);
       const name=document.createElement("button");name.type="button";name.className="key-name"+(key.comment?"":" empty");name.title="Click to rename";name.textContent=key.comment||"(no name)";name.onclick=()=>startRenameKey(index);row.append(name);
-      const fingerprint=document.createElement("span");fingerprint.className="key-fingerprint";fingerprint.textContent=keyDescription({fingerprint:key.fingerprint},true).replace("SHA256:","");fingerprint.title=key.fingerprint;row.append(fingerprint);
+      const fingerprint=document.createElement("span");fingerprint.className="key-fingerprint";fingerprint.textContent="ID "+keyDescription({fingerprint:key.fingerprint},true).replace("SHA256:","");fingerprint.title="Key ID (fingerprint): "+key.fingerprint;row.append(fingerprint);
+      const toggle=document.createElement("label");toggle.className="toggle key-toggle";toggle.setAttribute("aria-label","Key "+(key.enabled===false?"off":"on")+": "+(key.comment||"(no name)"));
+      const input=document.createElement("input");input.type="checkbox";input.checked=key.enabled!==false;input.setAttribute("aria-label",toggle.getAttribute("aria-label"));input.onchange=()=>{key.enabled=input.checked;renderKeyList();};
+      const switchEl=document.createElement("span");switchEl.className="switch";
+      const state=document.createElement("span");state.className="key-state";state.textContent=key.enabled===false?"Off":"On";
+      toggle.title=key.enabled===false?"Off: this key cannot sign in. Turn it on to allow it.":"On: this key can sign in. Turn it off to block it without removing it.";
+      toggle.append(input,switchEl,state);row.append(toggle);
     }
     const remove=document.createElement("button");remove.type="button";remove.className="btn-ghost btn-sm key-remove";remove.textContent="Remove";remove.onclick=()=>{workingKeys.splice(index,1);renderKeyList();};row.append(remove);wrap.append(row);
     if(key.name_problem){const note=document.createElement("div");note.className="key-note";note.textContent="Rename this key: its name is too long or has hidden characters.";wrap.append(note);}
@@ -594,7 +603,7 @@ async function startRenameKey(index){
   const cancel=()=>{if(done)return;done=true;renderKeyList();};
   // Busy while the rename is checked, so a Save clicked mid-rename cannot
   // send the old name. The row is found again by key data in case it moved.
-  const commit=async()=>{if(done)return;done=true;const token=keySession;const line=composeKeyName(key.line,input.value);setKeyBusy(true);let r;try{r=await API.check_public_key(line);}finally{if(activeKeySession(token))setKeyBusy(false);}if(!activeKeySession(token))return;const at=workingKeys.findIndex(k=>keyIdentity(k.line)===keyIdentity(key.line));if(!r.ok||!r.keys||r.keys.length!==1||at<0){setKeyMessage(r.error||"Could not read that public key.");renderKeyList();return;}workingKeys[at]=keyFromResult(r.keys[0]);renderKeyList();if(r.keys[0].note)setKeyMessage(r.keys[0].note,true);};
+  const commit=async()=>{if(done)return;done=true;const token=keySession;const line=composeKeyName(key.line,input.value);setKeyBusy(true);let r;try{r=await API.check_public_key(line);}finally{if(activeKeySession(token))setKeyBusy(false);}if(!activeKeySession(token))return;const at=workingKeys.findIndex(k=>keyIdentity(k.line)===keyIdentity(key.line));if(!r.ok||!r.keys||r.keys.length!==1||at<0){setKeyMessage(r.error||"Could not read that public key.");renderKeyList();return;}workingKeys[at]={...keyFromResult(r.keys[0]),enabled:key.enabled!==false};renderKeyList();if(r.keys[0].note)setKeyMessage(r.keys[0].note,true);};
   input.addEventListener("keydown",event=>{if(event.key==="Enter"){event.preventDefault();commit();}else if(event.key==="Escape"){event.preventDefault();event.stopPropagation();cancel();}});input.addEventListener("blur",commit);
 }
 
@@ -1140,8 +1149,8 @@ function disconnectWarning(username){
 }
 
 function sameKeySet(before,after){
-  const left=new Set((before||[]).filter(key=>key.valid!==false).map(key=>keyIdentity(key.line)));
-  const right=new Set((after||[]).map(key=>keyIdentity(key.line)));
+  const left=new Set((before||[]).filter(key=>key.valid!==false&&key.enabled!==false).map(key=>keyIdentity(key.line)));
+  const right=new Set((after||[]).filter(key=>key.enabled!==false).map(key=>keyIdentity(key.line)));
   return left.size===right.size&&[...left].every(key=>right.has(key));
 }
 function changesAccess(p){
@@ -1164,11 +1173,16 @@ async function onSaveUser(){
   if(workingKeys.some(key=>key.name_problem)){setKeyMessage("Rename or remove the key whose name is too long or has hidden characters before saving.");setKeyBusy(false);return;}
   const p={username:$("umUser").value.trim(),permissions:perms,
     home:$("umHome").value.trim(),auth:authMode,password:$("umPw").value,
-    authorized_keys:workingKeys.map(key=>key.line)};
+    authorized_keys:workingKeys.filter(key=>key.enabled!==false).map(key=>key.line),
+    disabled_keys:workingKeys.filter(key=>key.enabled===false).map(key=>key.line)};
+  if((authMode==="key"||authMode==="both")&&!p.authorized_keys.length){setKeyMessage(p.disabled_keys.length?"Turn on at least one key (or switch to password auth).":"Add at least one public key (or switch to password auth).");setKeyBusy(false);return;}
   const warn=editingOriginal&&changesAccess(p)?disconnectWarning(editingOriginal):"";
-  if(warn){
-    $("cfTitle").textContent="Disconnect active user?";
-    $("cfText").textContent=warn+" They can reconnect right away with the new settings.\n\nSave the changes anyway?";
+  // Password-only sign-in deletes the user's keys on save, so say so first.
+  const keyLoss=authMode==="password"&&workingKeys.length
+    ?"Password only sign-in deletes the "+(workingKeys.length===1?"public key":workingKeys.length+" public keys")+" on this user's list. Switching back to a key later will not bring "+(workingKeys.length===1?"it":"them")+" back.":"";
+  if(warn||keyLoss){
+    $("cfTitle").textContent=keyLoss?"Delete saved keys?":"Disconnect active user?";
+    $("cfText").textContent=[keyLoss,warn?warn+" They can reconnect right away with the new settings.":""].filter(Boolean).join("\n\n")+"\n\nSave the changes anyway?";
     $("cfFolderRow").style.display="none";
     $("cfSimpleRow").style.display="flex";
     $("cfCancel").textContent="Cancel";
