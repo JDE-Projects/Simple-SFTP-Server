@@ -17,7 +17,10 @@ from app.server import DEFAULT_PERMISSIONS
 from app.services.pubkeys import (
     INVALID_KEY_MESSAGE,
     describe_key,
+    key_identity,
     read_key_file,
+    read_keys,
+    read_keys_file,
     read_one_key,
 )
 from simple_sftp_server import APP_VERSION
@@ -326,6 +329,145 @@ def test_read_key_file_accepts_byte_order_mark(tmp_path):
     path.write_bytes(b"\xef\xbb\xbf" + line.encode() + b"\r\n")
 
     assert read_key_file(str(path)) == (line, None)
+
+
+def test_read_keys_returns_every_key_in_order():
+    lines = [
+        _public_line(ed25519.Ed25519PrivateKey.generate(), "alice"),
+        _public_line(rsa.generate_private_key(public_exponent=65537, key_size=1024), "bob"),
+        _public_line(ec.generate_private_key(ec.SECP256R1()), "carol"),
+    ]
+
+    assert read_keys("\n".join(line.replace(" ", "  ") for line in lines)) == (lines, None)
+
+
+def test_read_keys_skips_blank_and_comment_lines():
+    first = _public_line(ed25519.Ed25519PrivateKey.generate(), "alice")
+    second = _public_line(ed25519.Ed25519PrivateKey.generate(), "bob")
+
+    assert read_keys(f"\n# notes\n{first}\n\n  # notes\n{second}\n") == ([first, second], None)
+
+
+def test_read_keys_one_bad_line_returns_nothing_and_names_line():
+    first = _public_line(ed25519.Ed25519PrivateKey.generate())
+    second = _public_line(ed25519.Ed25519PrivateKey.generate())
+
+    result, error = read_keys(f"{first}\n# notes\nnot-a-key SECRETTEXT\n{second}")
+
+    assert result is None
+    assert "Line 3" in error
+    assert "SECRETTEXT" not in error
+
+
+def test_read_keys_names_first_bad_line():
+    line = _public_line(ed25519.Ed25519PrivateKey.generate())
+
+    result, error = read_keys(f"{line}\nbad-first\n{line}\nbad-second")
+
+    assert result is None
+    assert "Line 2" in error
+
+
+def test_read_keys_refuses_private_key_without_echo():
+    public = _public_line(ed25519.Ed25519PrivateKey.generate())
+    private_message = "That is a private key. Choose the .pub file next to it instead."
+    pem_private = rsa.generate_private_key(public_exponent=65537, key_size=1024).private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption()).decode()
+    openssh_private = ed25519.Ed25519PrivateKey.generate().private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.OpenSSH,
+        serialization.NoEncryption()).decode()
+    putty_private = "PuTTY-User-Key-File-3: ssh-ed25519\nPrivate-MAC: secret"
+
+    for private in (pem_private, openssh_private, putty_private):
+        result, error = read_keys(public + "\n" + private)
+        assert (result, error) == (None, private_message)
+        assert all(part not in error for part in private.splitlines())
+
+
+def test_read_keys_empty_text():
+    for text in ("", " \n\t ", "# note\n  # another", None):
+        assert read_keys(text) == (None, "No public key found.")
+
+
+def test_read_keys_reads_one_ssh2_block():
+    line = _public_line(ed25519.Ed25519PrivateKey.generate(), "alice@laptop")
+    block = _rfc4716_block(line, ['Comment: "alice@laptop"'])
+
+    assert read_keys(block) == ([read_one_key(block)[0]], None)
+
+
+def test_read_keys_refuses_mixed_or_multiple_ssh2_blocks():
+    line = _public_line(ed25519.Ed25519PrivateKey.generate())
+    block = _rfc4716_block(line)
+
+    for text in (block + "\n" + block, line + "\n" + block, block + "\n" + line):
+        result, error = read_keys(text)
+        assert result is None
+        assert "one key per user" not in error
+
+
+def test_key_identity_ignores_comment():
+    line = _public_line(ed25519.Ed25519PrivateKey.generate())
+    other = _public_line(ed25519.Ed25519PrivateKey.generate())
+    key_type, encoded = line.split()
+
+    assert key_identity(f"  {key_type}   {encoded}  a@pc") == key_identity(
+        f"{line} b@laptop") == key_identity(line)
+    assert key_identity(line) != key_identity(other)
+    assert key_identity(None) is None
+    assert key_identity(key_type) is None
+
+
+def test_read_keys_keeps_duplicates_for_caller():
+    line = _public_line(ed25519.Ed25519PrivateKey.generate())
+    first = line + " a@pc"
+    second = line + " b@laptop"
+
+    result, error = read_keys(first + "\n" + second)
+
+    assert (result, error) == ([first, second], None)
+    assert key_identity(result[0]) == key_identity(result[1])
+
+
+def test_read_keys_file_cases(tmp_path):
+    first = _public_line(ed25519.Ed25519PrivateKey.generate(), "first")
+    second = _public_line(ed25519.Ed25519PrivateKey.generate(), "second")
+    good = tmp_path / "keys.pub"
+    good.write_text(first + "\n" + second, encoding="utf-8")
+    assert read_keys_file(good) == ([first, second], None)
+
+    oversized = tmp_path / "oversized.pub"
+    oversized.write_bytes(b"x" * (64 * 1024 + 1))
+    assert read_keys_file(oversized) == (None, "That file is too large to be a public key.")
+
+    empty = tmp_path / "empty.pub"
+    empty.write_text("", encoding="utf-8")
+    assert read_keys_file(empty) == (None, "No public key found.")
+
+    missing_result, missing_error = read_keys_file(tmp_path / "missing.pub")
+    assert missing_result is None
+    assert "No such file" not in missing_error
+
+    bad_encoding = tmp_path / "bad.pub"
+    bad_encoding.write_bytes(b"\xff")
+    assert read_keys_file(bad_encoding) == (None, INVALID_KEY_MESSAGE)
+
+    bom = tmp_path / "bom.pub"
+    bom.write_bytes(b"\xef\xbb\xbf" + first.encode())
+    assert read_keys_file(bom) == ([first], None)
+
+
+@pytest.mark.parametrize("text, marker", [
+    ("not-a-key UNIQUE_BAD_LINE", "UNIQUE_BAD_LINE"),
+    ("---- BEGIN SSH2 PUBLIC KEY ----\nUNIQUE_BAD_SSH2\n---- END SSH2 PUBLIC KEY ----", "UNIQUE_BAD_SSH2"),
+    ("---- BEGIN SSH2 PUBLIC KEY ----\nAAAAAXNzaA==\n---- END SSH2 PUBLIC KEY ----\nUNIQUE_MIXED", "UNIQUE_MIXED"),
+])
+def test_read_keys_rejected_text_absent_from_errors(text, marker):
+    result, error = read_keys(text)
+
+    assert result is None
+    assert marker not in error
 
 
 def test_save_user_treats_non_text_key_as_blank(tmp_path, monkeypatch):

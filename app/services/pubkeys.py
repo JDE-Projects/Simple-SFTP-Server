@@ -121,6 +121,53 @@ def read_one_key(text):
     return line, None
 
 
+def read_keys(text):
+    """Read valid OpenSSH public-key lines from text in their input order."""
+    text = text if isinstance(text, str) else ""
+    private_key_message = "That is a private key. Choose the .pub file next to it instead."
+    if any(re.fullmatch(r"-----BEGIN(?: [A-Za-z]+)* PRIVATE KEY-----", line.strip())
+           or line.strip().startswith("PuTTY-User-Key-File-")
+           for line in text.splitlines()):
+        return None, private_key_message
+
+    ssh2_begin = "---- BEGIN SSH2 PUBLIC KEY ----"
+    ssh2_indexes = [index for index, line in enumerate(text.splitlines())
+                    if line.strip() == ssh2_begin]
+    if ssh2_indexes:
+        ssh2_message = "Text with a PuTTYgen (SSH2) key can hold only that one key. Add other keys separately."
+        if len(ssh2_indexes) > 1:
+            return None, ssh2_message
+        line, error = _read_rfc4716_key(text)
+        if error == INVALID_KEY_MESSAGE:
+            return None, error
+        if error is not None:
+            return None, ssh2_message
+        return [line], None
+
+    keys = []
+    for number, raw_line in enumerate(text.splitlines(), start=1):
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        line = " ".join(stripped.split())
+        if not is_valid_key(line):
+            return None, f"Line {number} is not a valid public key. Use the full contents of a .pub file (for example ssh-ed25519 AAAA... name@computer)."
+        keys.append(line)
+    if not keys:
+        return None, "No public key found."
+    return keys, None
+
+
+def key_identity(line):
+    """Return a key line's type and encoded key data, excluding its comment."""
+    if not isinstance(line, str):
+        return None
+    parts = line.split()
+    if len(parts) < 2:
+        return None
+    return parts[0], parts[1]
+
+
 def _load_key(line):
     key_type, encoded, *_ = line.split()
     return paramiko.PKey.from_type_string(key_type, base64.b64decode(encoded, validate=True))
@@ -163,3 +210,17 @@ def read_key_file(path):
     except OSError as e:
         return None, friendly_error(e)
     return read_one_key(text)
+
+
+def read_keys_file(path):
+    """Read a small UTF-8 file containing one or more public keys."""
+    try:
+        if os.path.getsize(path) > 64 * 1024:
+            return None, "That file is too large to be a public key."
+        with open(path, "r", encoding="utf-8-sig") as f:
+            text = f.read()
+    except UnicodeDecodeError:
+        return None, INVALID_KEY_MESSAGE
+    except OSError as e:
+        return None, friendly_error(e)
+    return read_keys(text)
