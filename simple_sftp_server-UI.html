@@ -1235,8 +1235,8 @@ function confirmDeleteUser(u){
 }
 async function runDeleteUser(u,deleteFolder,okMsg){
   closeModal("confirmModal");
-  const r=await API.delete_user(u.username,deleteFolder);
-  if(!r.ok){toast(r.error||"Could not delete the user.",true);return;}
+  const r=await API.delete_user(u.username,deleteFolder,u.rev);
+  if(!r.ok){if(Array.isArray(r.users)){users=r.users;renderUsers();}toast(r.error||"Could not delete the user.",true);return;}
   users=r.users;renderUsers();
   if(editingUser&&editingUser.username===u.username) closeModal("userModal");
   toast(r.warning||okMsg,r.warning?"warn":false);

@@ -39,6 +39,10 @@ def _user_revision(record):
     return hashlib.sha256(encoded).hexdigest()
 
 
+STALE_USER_ERROR = ("This user was changed outside the app since you opened this window. "
+                    "Close it and open the user again.")
+
+
 def _is_allowed_url(url):
     """True only for a plain https address on the JDE-Projects website: no
     other host, scheme, port, login part, or whitespace/control characters.
@@ -351,8 +355,7 @@ class Api:
                         "ok": False,
                         "stale": True,
                         "users": self._public_users(cfg),
-                        "error": ("This user was changed outside the app since you opened this window. "
-                                  "Close it and open the user again."),
+                        "error": STALE_USER_ERROR,
                     }
             users = cfg.get("users", [])
             for u in users:
@@ -487,10 +490,17 @@ class Api:
         return {"ok": True, "users": self._public_users(cfg), "disconnected": dropped,
                 "access_changed": access_changed}
 
-    def delete_user(self, username, delete_folder=False):
+    def delete_user(self, username, delete_folder=False, rev=None):
         with self._cfg_lock:
             cfg = self._load_config()
             user_rec = next((u for u in cfg.get("users", []) if u.get("username") == username), None)
+            if user_rec is None or not isinstance(rev, str) or rev != _user_revision(user_rec):
+                return {
+                    "ok": False,
+                    "stale": True,
+                    "users": self._public_users(cfg),
+                    "error": STALE_USER_ERROR,
+                }
             cfg["users"] = [u for u in cfg.get("users", []) if u.get("username") != username]
             if not self._save_config(cfg):
                 return {"ok": False, "error": "Could not write the config file."}

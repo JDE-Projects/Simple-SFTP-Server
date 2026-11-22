@@ -171,7 +171,9 @@ def test_delete_user_removes_safe_unprotected_folder(tmp_path, monkeypatch):
                       "password_hash": "x"}]}
     api._save_config(cfg)
 
-    result = api.delete_user("alice", delete_folder=True)
+    rev = next(user["rev"] for user in api._public_users(api._load_config())
+               if user["username"] == "alice")
+    result = api.delete_user("alice", delete_folder=True, rev=rev)
 
     assert result["ok"] is True
     assert "warning" not in result or "kept because" not in (result.get("warning") or "")
@@ -189,7 +191,9 @@ def test_delete_user_refuses_to_delete_protected_folder(tmp_path, monkeypatch):
                       "password_hash": "x"}]}
     api._save_config(cfg)
 
-    result = api.delete_user("bob", delete_folder=True)
+    rev = next(user["rev"] for user in api._public_users(api._load_config())
+               if user["username"] == "bob")
+    result = api.delete_user("bob", delete_folder=True, rev=rev)
 
     assert result["ok"] is True
     assert "warning" in result
@@ -337,7 +341,9 @@ def test_delete_user_warns_when_rmtree_fails(tmp_path, monkeypatch):
         raise OSError("simulated delete failure")
     monkeypatch.setattr("app.api.shutil.rmtree", boom)
 
-    result = api.delete_user("greg", delete_folder=True)
+    rev = next(user["rev"] for user in api._public_users(api._load_config())
+               if user["username"] == "greg")
+    result = api.delete_user("greg", delete_folder=True, rev=rev)
 
     # The account is still removed, but the folder failure is surfaced, not swallowed.
     assert result["ok"] is True
@@ -366,7 +372,9 @@ def test_delete_user_warns_when_a_file_handle_is_open(tmp_path, monkeypatch):
     handle.write("in use")
     handle.flush()
     try:
-        result = api.delete_user("hanna", delete_folder=True)
+        rev = next(user["rev"] for user in api._public_users(api._load_config())
+                   if user["username"] == "hanna")
+        result = api.delete_user("hanna", delete_folder=True, rev=rev)
     finally:
         handle.close()
 
@@ -394,7 +402,9 @@ def test_managed_share_folder_deletes_end_to_end(tmp_path, monkeypatch):
     rec = next(u for u in api._load_config()["users"] if u["username"] == "frank")
     assert rec.get("managed_folder") is True
 
-    result = api.delete_user("frank", delete_folder=True)
+    rev = next(user["rev"] for user in api._public_users(api._load_config())
+               if user["username"] == "frank")
+    result = api.delete_user("frank", delete_folder=True, rev=rev)
 
     assert result["ok"] is True
     assert "kept because" not in (result.get("warning") or "")

@@ -11,7 +11,8 @@
   "check_update": [],
   "delete_user": [
     "username",
-    "delete_folder"
+    "delete_folder",
+    "rev"
   ],
   "drain_debug_warnings": [],
   "generate_keypair": [
