@@ -103,7 +103,9 @@ def test_delete_user_disconnects_that_account(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(api._service, "disconnect_user", lambda name: (calls.append(name), 1)[1])
 
-    r = api.delete_user("bob")
+    rev = next(user["rev"] for user in api._public_users(api._load_config())
+               if user["username"] == "bob")
+    r = api.delete_user("bob", rev=rev)
     assert r["ok"], r
     assert "bob" in calls
     assert r["disconnected"] == 1

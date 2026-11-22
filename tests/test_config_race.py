@@ -23,6 +23,7 @@ def test_concurrent_delete_user_does_not_lose_a_deletion(tmp_path, monkeypatch):
             "users": [{"username": "alice", "home": str(tmp_path / "alice")},
                       {"username": "bob", "home": str(tmp_path / "bob")}]}
     assert api._save_config(seed)
+    revs = {user["username"]: user["rev"] for user in api._public_users(api._load_config())}
 
     # Force both delete_user calls to reach the save step at (roughly) the same
     # time, so a stale in-memory read (the bug) is reproduced deterministically.
@@ -44,7 +45,7 @@ def test_concurrent_delete_user_does_not_lose_a_deletion(tmp_path, monkeypatch):
     results = {}
 
     def run(username):
-        results[username] = api.delete_user(username, delete_folder=False)
+        results[username] = api.delete_user(username, delete_folder=False, rev=revs[username])
 
     t1 = threading.Thread(target=run, args=("alice",))
     t2 = threading.Thread(target=run, args=("bob",))

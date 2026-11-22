@@ -27,7 +27,8 @@ def test_delete_user_reports_config_write_failure(tmp_path, monkeypatch):
                                  "users": [{"username": "bob", "home": str(tmp_path)}]}
     monkeypatch.setattr(api, "_save_config", lambda cfg: False)
 
-    result = api.delete_user("bob", delete_folder=False)
+    rev = api._public_users(api._load_config())[0]["rev"]
+    result = api.delete_user("bob", delete_folder=False, rev=rev)
 
     assert result["ok"] is False
     assert "error" in result
