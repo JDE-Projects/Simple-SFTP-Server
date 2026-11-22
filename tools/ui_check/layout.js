@@ -258,11 +258,11 @@ async function checkMultiKeyEditor(helpers) {
   })()`);
   try {
     await evaluate("openUser(window.__multiUser);setAuth('key')");
-    check("W1 list renders stored keys with name, fingerprint, and Remove", await evaluate(`(() => {
-      const rows = [...document.querySelectorAll('#umKeyList .key-row')]; return rows.length === 2 && rows.every(row => row.textContent.includes('Remove')) &&
+    check("W1 list renders stored keys with name, fingerprint, Rename, and Remove", await evaluate(`(() => {
+      const rows = [...document.querySelectorAll('#umKeyList .key-row')]; return rows.length === 2 && rows.every(row => row.textContent.includes('Rename') && row.textContent.includes('Remove')) &&
         rows[0].textContent.includes('ed25519') && rows[0].textContent.includes('first') && rows[1].textContent.includes('(no name)'); })()`));
-    const narrow = await evaluate(`(() => { document.querySelector('.app').style.width='${NARROW_PX}px'; const list=document.getElementById('umKeyList'); const rows=[...list.querySelectorAll('.key-row')]; return rows.every(row => row.getBoundingClientRect().right <= list.getBoundingClientRect().right + 1) && rows[0].title.includes('SHA256:'); })()`);
-    check("W2 full and narrow rows stay contained and title long text", narrow);
+    const narrow = await evaluate(`(() => { document.querySelector('.app').style.width='${NARROW_PX}px'; const list=document.getElementById('umKeyList'); const rows=[...list.querySelectorAll('.key-row')]; return rows.every(row => row.getBoundingClientRect().right <= list.getBoundingClientRect().right + 1 && row.querySelector('.key-rename-btn').offsetParent !== null && row.querySelector('.key-remove').offsetParent !== null) && rows[0].title.includes('SHA256:'); })()`);
+    check("W2 full and narrow rows keep Rename and Remove inside the panel", narrow);
     // Screenshots of filled rows: a named key, an unnamed key turned off, a long name, a
     // name that must be renamed, and an invalid entry, in both themes.
     const showRows = `(() => { workingKeys = [
@@ -288,28 +288,29 @@ async function checkMultiKeyEditor(helpers) {
     await evaluate("openUser(window.__multiUser);setAuth('key')");await click("#umKeyList .key-remove");await evaluate("closeModal('userModal');openUser(window.__multiUser);setAuth('key')");const restored=await evaluate("workingKeys.length === 2");await click("#umKeyList .key-remove");await evaluate("window.__multi.saved=null");await click("#umSave");
     check("W5 Remove, Cancel, reopen, and Save preserve the working copy", restored && await evaluate("Array.isArray(window.__multi.saved.authorized_keys) && window.__multi.saved.authorized_keys.length === 1"));
     await waitFor("!document.getElementById('userModal').classList.contains('show')", 5000);await evaluate("openUser(window.__multiUser);setAuth('key')");
-    await evaluate("document.getElementById('umKeys').value='ssh-ed25519 single-data original';document.getElementById('umKeys').dispatchEvent(new Event('input'))");await waitFor("document.getElementById('umKeyName').value === 'original'", 2000);await evaluate("document.getElementById('umKeyName').value='edited';document.getElementById('umKeyName').dispatchEvent(new Event('input'))");await click("#umKeyAdd");
-    check("W6 one pasted key fills and saves the edited Friendly Name", await evaluate("workingKeys.some(key => key.line === 'ssh-ed25519 single-data edited')"));
-    await evaluate("document.getElementById('umKeys').value='ssh-ed25519 three-one one\\nssh-rsa three-two two\\nssh-ed25519 three-three three';document.getElementById('umKeys').dispatchEvent(new Event('input'))");await waitFor("document.getElementById('umKeyName').disabled", 2000);
-    const hintShown = await evaluate("document.getElementById('umKeyNameHint').offsetParent !== null");
+    await evaluate("document.getElementById('umKeys').value='ssh-ed25519 single-data';");await click("#umKeyAdd");
+    await evaluate("document.getElementById('umKeys').value='ssh-ed25519 second-data';");await click("#umKeyAdd");
+    check("W6 nameless pasted keys receive the next username-based names", await evaluate("workingKeys.some(key => key.line === 'ssh-ed25519 single-data multikey-key1') && workingKeys.some(key => key.line === 'ssh-ed25519 second-data multikey-key2')"));
+    check("W7 removed naming controls and label are absent", await evaluate("!document.getElementById(['umKey', 'Name'].join('')) && !document.getElementById(['umKey', 'NameHint'].join('')) && !document.getElementById('userModal').innerText.includes(['Friendly', 'Name'].join(' '))"));
+    await evaluate("document.getElementById('umKeys').value='ssh-ed25519 three-one one\\nssh-rsa three-two two\\nssh-ed25519 three-three three';");
     await click("#umKeyAdd");
-    check("W7 three pasted keys disable Friendly Name and append", hintShown && await evaluate("workingKeys.length === 6"));
+    check("W8 three pasted keys retain names and append", await evaluate("workingKeys.length === 7"));
     await evaluate("document.getElementById('umKeys').value='ssh-ed25519 three-one one'");await click("#umKeyAdd");
-    check("W8 duplicate paste is skipped", await evaluate("document.getElementById('umKeyErr').textContent === 'Already on the list: one.'"));
-    await evaluate("workingKeys=[];renderKeyList();window.__multi.fileMode='one'");await click("#umKeyFile");const oneFile=await evaluate("document.getElementById('umKeys').value.includes('file-data') && document.getElementById('umKeyName').value === 'file@laptop'");await evaluate("window.__multi.fileMode='many'");await click("#umKeyFile");await click("#umKeygen");await evaluate("document.getElementById('kgPath').value='C:\\\\keys\\\\id'");await click("#kgGo");
-    check("W9 file and generated keys add without replacing rows", oneFile && await evaluate("workingKeys.length === 2 && document.getElementById('umKeys').value.includes('generated-data')"));
-    await click("#kgClose");await click("#umKeyList .key-name");await evaluate("const input=document.querySelector('#umKeyList .key-rename');input.value='renamed';input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))");await waitFor("workingKeys[0].comment === 'renamed'", 2000);const renamed=await evaluate("workingKeys[0].line");await click("#umKeyList .key-name");await evaluate("document.querySelector('#umKeyList .key-rename').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
+    check("W9 duplicate paste is skipped", await evaluate("document.getElementById('umKeyErr').textContent === 'Already on the list: one.'"));
+    await evaluate("workingKeys=[];renderKeyList();window.__multi.fileMode='one'");await click("#umKeyFile");const oneFile=await evaluate("document.getElementById('umKeys').value.includes('file-data')");await evaluate("window.__multi.fileMode='many'");await click("#umKeyFile");await click("#umKeygen");await evaluate("document.getElementById('kgPath').value='C:\\\\keys\\\\id'");await click("#kgGo");
+    check("W10 file and generated keys add without replacing rows", oneFile && await evaluate("workingKeys.length === 2 && document.getElementById('umKeys').value.includes('generated-data')"));
+    await click("#kgClose");await click("#umKeyList .key-rename-btn");await evaluate("const input=document.querySelector('#umKeyList .key-rename');input.value='renamed';input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))");await waitFor("workingKeys[0].comment === 'renamed'", 2000);const renamed=await evaluate("workingKeys[0].line");await click("#umKeyList .key-rename-btn");await evaluate("document.querySelector('#umKeyList .key-rename').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
     const stillOpen = await evaluate("document.getElementById('userModal').classList.contains('show') && !document.querySelector('#umKeyList .key-rename') && workingKeys[0].comment === 'renamed'");
-    check("W10 rename changes only the name and Escape cancels without closing the window", renamed === "ssh-ed25519 file-one renamed" && stillOpen);
+    check("W11 Rename opens the name box, Enter saves, and Escape cancels without closing the window", renamed === "ssh-ed25519 file-one renamed" && stillOpen);
     await evaluate("document.getElementById('umKeys').value='ssh-ed25519 save-data save';window.__multi.saved=null");await click("#umSave");await waitFor("window.__multi.saved !== null", 2000);const saveText=await evaluate("window.__multi.saved.authorized_keys.some(key => key.includes('save-data'))");await evaluate("openUser(window.__multiUser);setAuth('key');document.getElementById('umKeys').value='invalid'");await click("#umSave");
-    check("W11 Save adds pasted text and refuses invalid text", saveText && await evaluate("document.getElementById('umKeyErr').textContent.includes('not a valid') && window.__multi.saved !== null"));
+    check("W12 Save adds pasted text and refuses invalid text", saveText && await evaluate("document.getElementById('umKeyErr').textContent.includes('not a valid') && window.__multi.saved !== null"));
     await evaluate("cur={connections:[{user:'multikey',active:0}]};openUser(window.__multiUser);setAuth('key');document.getElementById('umKeys').value='ssh-ed25519 warning-data warning'");await click("#umSave");const warned=await evaluate("document.getElementById('confirmModal').classList.contains('show')");await click("#cfCancel");await evaluate("openUser(window.__multiUser);setAuth('key');window.__multi.saved=null");await click("#umSave");
-    check("W12 added key warns for a live user, rename-only does not", warned && await evaluate("window.__multi.saved !== null && !document.getElementById('confirmModal').classList.contains('show')"));
+    check("W13 added key warns for a live user, rename-only does not", warned && await evaluate("window.__multi.saved !== null && !document.getElementById('confirmModal').classList.contains('show')"));
     const hover=await evaluate("authHover({...window.__multiUser,key_count:1})+'|'+authHover(window.__multiUser)+'|'+document.body.innerText.includes('older'+' version')");
-    check("W13 hover counts keys the same way for one or several, with no key type and no old wording", hover === 'Signs in with a public key. Keys: 1 on|Signs in with a public key. Keys: 2 on|false', hover);
+    check("W14 hover counts keys the same way for one or several, with no key type and no old wording", hover === 'Signs in with a public key. Keys: 1 on|Signs in with a public key. Keys: 2 on|false', hover);
     await evaluate("openUser(window.__multiUser);setAuth('key');document.getElementById('umKeys').value='ssh-ed25519 delayed-data delayed'");await click("#umKeyAdd");await evaluate("closeModal('userModal');openUser(window.__multiUser);window.__multi.delayed()")
     await waitFor("!keyBusy", 2000);
-    check("W14 stale Add reply does not change a reopened window", await evaluate("workingKeys.length === 2 && !workingKeys.some(key => key.line.includes('delayed-data'))"));
+    check("W15 stale Add reply does not change a reopened window", await evaluate("workingKeys.length === 2 && !workingKeys.some(key => key.line.includes('delayed-data'))"));
     await evaluate("openUser({...window.__multiUser,keys:[...window.__multiUser.keys,{line:'bad',valid:false,type:'',comment:'',fingerprint:'',name_problem:null}]});setAuth('key')");
     check("W15 each valid row has a switch before Remove and the invalid entry has none", await evaluate(`(() => {
       const rows=[...document.querySelectorAll('#umKeyList .key-row')]; return rows.slice(0,2).every(row=>{

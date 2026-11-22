@@ -152,14 +152,17 @@ export default async function spacing(helpers) {
 
     // 4. Empty, filled, multi-paste, and weak-key warning states.
     await evaluate("openUser({...users[0], auth:'key', keys:[]});setAuth('key')");
-    await checkGap(helpers, `${prefix} 4. empty key list is 6px above paste box`, '#umKeyList', '#umKeys', 6);
     await evaluate(`workingKeys=[{line:'ssh-ed25519 page-one alpha',valid:true,enabled:true,type:'ed25519',comment:'alpha',fingerprint:'SHA256:page-one',name_problem:null}];renderKeyList()`);
-    await checkGap(helpers, `${prefix} 4. filled key list is 6px above paste box`, '#umKeyList', '#umKeys', 6);
-    await evaluate(`document.getElementById('umKeys').value=${JSON.stringify(`${await ed25519Line("spacing-one")}\n${await ed25519Line("spacing-two")}`)};document.getElementById('umKeys').dispatchEvent(new Event('input'))`);
-    await waitFor("document.getElementById('umKeyNameHint').offsetParent !== null", 5000);
-    await checkGap(helpers, `${prefix} 4. Friendly Name label is 6px under paste box`, '#umKeys', '#umKeyWrap label.field-label.step', 6);
-    await checkGap(helpers, `${prefix} 4. Friendly Name hint is 4px under its field`, '#umKeyName', '#umKeyNameHint', 4);
-    await checkGap(helpers, `${prefix} 4. key action row is 6px after the last key step`, '#umKeyNameHint', '#umKeyAdd', 6);
+    await checkGap(helpers, `${prefix} 4. Add a key label is 16px under the last key box`, '#umKeyList > :last-child', '#umKeyAddWrap .field-label', 16);
+    await checkGap(helpers, `${prefix} 4. paste box is 6px under its label`, '#umKeyAddWrap .field-label', '#umKeys', 6);
+    await checkGap(helpers, `${prefix} 4. key action row is 6px under the paste box`, '#umKeys', '#umKeyAddWrap div.step', 6);
+    await evaluate(`document.getElementById('umUser').value='spacing-user';document.getElementById('umKeys').value=${JSON.stringify(await ed25519Line(""))}`);await click('#umKeyAdd');
+    await waitFor("workingKeys.length === 2 && !keyBusy", 5000);
+    await evaluate(`document.getElementById('umKeys').value=${JSON.stringify(await ed25519Line(""))}`);await click('#umKeyAdd');
+    await waitFor("workingKeys.length === 3 && !keyBusy", 5000);
+    const names = await evaluate("workingKeys.map(key => key.comment)");
+    check(`${prefix} 4. nameless pasted keys receive sequential username-based names`,
+      names.includes('spacing-user-key1') && names.includes('spacing-user-key2'), JSON.stringify(names));
     await evaluate("openUser(users[0]);setAuth('key')");
     await waitFor("document.querySelector('#umKeyList .key-note.warn')", 5000);
     await checkStyle(helpers, `${prefix} 4. weak-key warning is amber and italic`, '#umKeyList .key-note.warn',
@@ -169,7 +172,7 @@ export default async function spacing(helpers) {
     // 5. Each error line takes space only when shown.
     await evaluate("openUser({...users[0],auth:'both',has_password:true});setAuth('both')");
     await checkErrorLine(helpers, 'umUserErr', '#umUser', '#userModal .row:nth-of-type(2) .field-label', 'Username is required.');
-    await checkErrorLine(helpers, 'umKeyErr', '#umKeygen', '#userModal .row:nth-of-type(6) .field-label', 'Add a valid key.');
+    await checkErrorLine(helpers, 'umKeyErr', '#umKeygen', '#umKeyAddWrap + .row .field-label', 'Add a valid key.');
     await checkErrorLine(helpers, 'umPermErr', '#userModal .perm-grid', '#userModal .modal-actions', 'Choose at least one permission.');
 
     // 6. Key generator before and after a result. keygenSuccess writes only to the page.

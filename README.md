@@ -25,7 +25,7 @@ If you enjoyed this project and would like to buy me a coffee, check out my [Ko-
 - Three access modes per user: read-only, read & write, or upload-only
   (a drop box). Deleting and renaming is off unless you allow it.
 - Sign-in by password, public key, or either one. Each user can have up to 25
-  public keys, each with a friendly name, for example one per computer. A key
+  public keys, for example one per computer. A key
   can be turned off without removing it, so it stays on the list but cannot
   sign in until it is turned back on. Keys can be picked from a .pub file
   (PuTTYgen's saved format is converted),
