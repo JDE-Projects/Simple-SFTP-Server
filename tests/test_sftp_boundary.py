@@ -622,10 +622,11 @@ def test_posix_rename_dir_denied_without_rename_dir_permission(tmp_path, sftp_se
         _close(client, sftp)
 
 
+@pytest.mark.parametrize("method", ["rename", "posix_rename"])
 @pytest.mark.parametrize("outside_path_kind", ["parent", "absolute"])
 @pytest.mark.parametrize("outside_is_source", [False, True])
-def test_posix_rename_refuses_paths_outside_jail(
-    tmp_path, sftp_server, outside_path_kind, outside_is_source
+def test_rename_refuses_paths_outside_jail(
+    tmp_path, sftp_server, method, outside_path_kind, outside_is_source
 ):
     home = tmp_path / "home"
     home.mkdir()
@@ -638,7 +639,7 @@ def test_posix_rename_refuses_paths_outside_jail(
     client, sftp = sftp_password(handle.port, "bob", "pw")
     try:
         with pytest.raises((IOError, PermissionError)):
-            sftp.posix_rename(
+            getattr(sftp, method)(
                 outside_path if outside_is_source else "a.txt",
                 "b.txt" if outside_is_source else outside_path,
             )
