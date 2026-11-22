@@ -493,18 +493,26 @@ class JailedSFTP(paramiko.SFTPServerInterface):
         except OSError as e:
             return paramiko.SFTPServer.convert_errno(e.errno)
 
-    def rename(self, oldpath, newpath):
+    def _rename_paths(self, oldpath, newpath):
+        # Shared start of rename and posix_rename: note the activity, map both
+        # paths inside the user's folder, and check the file or folder rename
+        # permission. Returns (old, new, None) when the rename may go ahead,
+        # or (None, None, refusal code).
         if self.service:
             self.service.note_op(self.sid, "renaming", oldpath)
         o = self._real(oldpath)
         n = self._real(newpath)
         if o is None or n is None:
-            return paramiko.SFTP_PERMISSION_DENIED
-        is_dir = os.path.isdir(o)
-        if is_dir and not self.perm["rename_dir"]:
-            return paramiko.SFTP_PERMISSION_DENIED
-        if not is_dir and not self.perm["rename_file"]:
-            return paramiko.SFTP_PERMISSION_DENIED
+            return None, None, paramiko.SFTP_PERMISSION_DENIED
+        allowed = self.perm["rename_dir"] if os.path.isdir(o) else self.perm["rename_file"]
+        if not allowed:
+            return None, None, paramiko.SFTP_PERMISSION_DENIED
+        return o, n, None
+
+    def rename(self, oldpath, newpath):
+        o, n, refused = self._rename_paths(oldpath, newpath)
+        if refused is not None:
+            return refused
         try:
             os.rename(o, n)
             self._move_upload_records(o, n)
@@ -515,17 +523,9 @@ class JailedSFTP(paramiko.SFTPServerInterface):
             return paramiko.SFTPServer.convert_errno(e.errno)
 
     def posix_rename(self, oldpath, newpath):
-        if self.service:
-            self.service.note_op(self.sid, "renaming", oldpath)
-        o = self._real(oldpath)
-        n = self._real(newpath)
-        if o is None or n is None:
-            return paramiko.SFTP_PERMISSION_DENIED
-        is_dir = os.path.isdir(o)
-        if is_dir and not self.perm["rename_dir"]:
-            return paramiko.SFTP_PERMISSION_DENIED
-        if not is_dir and not self.perm["rename_file"]:
-            return paramiko.SFTP_PERMISSION_DENIED
+        o, n, refused = self._rename_paths(oldpath, newpath)
+        if refused is not None:
+            return refused
         try:
             if self.perm["delete"]:
                 os.replace(o, n)
