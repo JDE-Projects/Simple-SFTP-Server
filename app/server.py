@@ -16,6 +16,7 @@ from app.debug_log import debug, describe_error, describe_failure
 from app.helpers import fingerprint_sha256, friendly_error, human_size
 from app.services.hostkey import HostKeyError, load_or_create_host_key
 from app.services.passwords import _DUMMY_PASSWORD_HASH, verify_password
+from app.services.pubkeys import key_identity
 
 
 # How often the live view is refreshed. All per-file state is recorded in memory
@@ -665,8 +666,10 @@ class ServerIface(paramiko.ServerInterface):
         real_hash = u.get("password_hash") if (u and u.get("auth") in ("password", "both")) else None
         if real_hash:
             if verify_password(password, real_hash):
-                self._win(username, u)
-                return paramiko.AUTH_SUCCESSFUL
+                if self._win(username, "password", real_hash):
+                    return paramiko.AUTH_SUCCESSFUL
+                debug._log("auth fail (password)", {"ip": self.ip})
+                return paramiko.AUTH_FAILED
         else:
             # No real user/hash to check against: run a dummy bcrypt check
             # anyway and discard the result, so this path takes about as
@@ -699,26 +702,45 @@ class ServerIface(paramiko.ServerInterface):
         debug._log("auth fail (key)", {"ip": self.ip})
         return paramiko.AUTH_FAILED
 
-    def _win(self, username, user, key_line=None, key_fingerprint=None):
-        self.username = username
-        self.user = user
-        self.key_line = key_line
-        self.key_fingerprint = key_fingerprint
-        self.service.lockout.clear(self.ip, username)
+    def _win(self, username, method, evidence, key_fingerprint=None):
+        # Saving writes the config before disconnecting the user. Registering
+        # first means that disconnect sees this connection, or this fresh read
+        # sees the saved record before sign-in succeeds.
+        if not self.service.register_user(self.sid, self.transport, username):
+            self.username = self.user = self.key_line = self.key_fingerprint = None
+            return False
+        user = self.service.find_user(username)
+        key_line = None
+        if user and user.get("auth") in (("password", "both") if method == "password" else ("key", "both")):
+            if method == "password":
+                valid = user.get("password_hash") == evidence
+            else:
+                identity = key_identity(evidence)
+                key_line = next((line for line in user.get("authorized_keys", [])
+                                 if key_identity(line) == identity), None)
+                valid = key_line is not None
+            if valid:
+                self.username = username
+                self.user = user
+                self.key_line = key_line
+                self.key_fingerprint = key_fingerprint if method == "key" else None
+                self.service.lockout.clear(self.ip, username)
+                return True
+        self.service.unregister_user(self.sid, self.transport, username)
+        self.username = self.user = self.key_line = self.key_fingerprint = None
+        return False
 
     def _finish_sign_in(self):
-        # A password sign-in is recorded as soon as the password checks out.
-        # A key sign-in is recorded here, under the name the connection
-        # actually signed in as.
+        # Password sign-in is recorded as soon as the password checks out.
+        # Key sign-in is recorded under the name the connection actually used.
         if self.username is not None:
             return True
         name = self.transport.get_username() if self.transport else None
         match = self._key_matches.get(name)
         if match is None:
             return False
-        user, key_line, key_fingerprint = match
-        self._win(name, user, key_line, key_fingerprint)
-        return True
+        _user, key_line, key_fingerprint = match
+        return self._win(name, "key", key_line, key_fingerprint)
 
     def check_channel_request(self, kind, chanid):
         # The connection limits count TCP connections, not channels. Without
@@ -800,6 +822,20 @@ class SFTPService:
 
     def find_user(self, username):
         return self.api._find_user(username)
+
+    def register_user(self, sid, transport, username):
+        with self._lock:
+            entry = self._conns.get(sid)
+            if entry is None or entry["transport"] is not transport:
+                return False
+            entry["user"] = username
+            return True
+
+    def unregister_user(self, sid, transport, username):
+        with self._lock:
+            entry = self._conns.get(sid)
+            if entry is not None and entry["transport"] is transport and entry["user"] == username:
+                entry["user"] = ""
 
     def start(self, port, quick=False):
         if self.running:
@@ -1041,8 +1077,6 @@ class SFTPService:
                                        "since": time.time(), "transfers": {},
                                        "op": "", "path": "", "lists": 0,
                                        "stats": 0, "bytes": 0}
-                if sid in self._conns:
-                    self._conns[sid]["user"] = server.username
             if server.key_line is None:
                 debug._log("client connected", {"ip": ip, "method": "password"})
             else:
