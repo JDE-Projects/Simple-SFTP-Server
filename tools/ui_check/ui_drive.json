@@ -19,6 +19,11 @@
       "fixture": "tools/ui_check/fixture_debug_log.py",
       "timeout_s": 120
     },
+    "weak-key": {
+      "script": "tools/ui_check/weak_key.js",
+      "fixture": "tools/ui_check/fixture_weak_key.py",
+      "timeout_s": 120
+    },
     "layout": {
       "script": "tools/ui_check/layout.js",
       "fixture": "tools/ui_check/fixture.py",
