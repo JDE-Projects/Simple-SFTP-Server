@@ -82,7 +82,8 @@ def test_save_user_edit_disconnects_that_account(tmp_path, monkeypatch):
 
     r = api.save_user({"username": "bob", "home": str(home),
                         "permissions": _perms(download=False), "auth": "password",
-                        "password": "another horse battery staple"}, original="bob")
+                        "password": "another horse battery staple",
+                        "rev": api._public_users(api._load_config())[0]["rev"]}, original="bob")
     assert r["ok"], r
     assert "bob" in calls
     assert r["disconnected"] == 1

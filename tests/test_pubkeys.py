@@ -66,6 +66,12 @@ def _user_payload(home, keys, disabled_keys=_MISSING):
     return payload
 
 
+def _edit_payload(api, payload, username="alice"):
+    payload["rev"] = next(user["rev"] for user in api._public_users(api._load_config())
+                          if user["username"] == username)
+    return payload
+
+
 def test_clean_key_name_shortens_name_without_changing_identity():
     line = _public_line(ed25519.Ed25519PrivateKey.generate(), "x" * 150)
 
@@ -149,7 +155,7 @@ def test_save_user_stores_full_list_and_removes_a_key(tmp_path, monkeypatch):
 
     assert api.save_user(_user_payload(home, keys))["ok"] is True
     assert api._load_config()["users"][0]["authorized_keys"] == keys
-    assert api.save_user(_user_payload(home, keys[:2]), original="alice")["ok"] is True
+    assert api.save_user(_edit_payload(api, _user_payload(home, keys[:2])), original="alice")["ok"] is True
     assert api._load_config()["users"][0]["authorized_keys"] == keys[:2]
 
 
@@ -424,7 +430,7 @@ def test_save_user_renames_and_deduplicates_keys(tmp_path, monkeypatch):
     first = _public_line(ed25519.Ed25519PrivateKey.generate(), "first")
     renamed = first.rsplit(" ", 1)[0] + " renamed"
     assert api.save_user(_user_payload(home, [first]))["ok"] is True
-    assert api.save_user(_user_payload(home, [renamed, first]), original="alice")["ok"] is True
+    assert api.save_user(_edit_payload(api, _user_payload(home, [renamed, first])), original="alice")["ok"] is True
     assert api._load_config()["users"][0]["authorized_keys"] == [renamed]
     assert is_valid_key(renamed)
     assert key_identity(renamed) == key_identity(first)
@@ -495,9 +501,9 @@ def test_saved_weak_rsa_key_is_kept_and_renamed_only_as_an_off_key(tmp_path, mon
     strong = _public_line(ed25519.Ed25519PrivateKey.generate())
     _user_with_saved_weak_key(api, home, weak, strong)
 
-    assert api.save_user(_user_payload(home, [strong], [weak]), original="alice")["ok"] is True
+    assert api.save_user(_edit_payload(api, _user_payload(home, [strong], [weak])), original="alice")["ok"] is True
     renamed = weak.rsplit(" ", 1)[0] + " renamed"
-    assert api.save_user(_user_payload(home, [strong], [renamed]), original="alice")["ok"] is True
+    assert api.save_user(_edit_payload(api, _user_payload(home, [strong], [renamed])), original="alice")["ok"] is True
     stored = api._find_user("alice")
     assert stored["authorized_keys"] == [strong]
     assert stored["disabled_keys"] == [renamed]
@@ -511,7 +517,7 @@ def test_saved_weak_rsa_key_cannot_be_saved_as_on(tmp_path, monkeypatch):
     strong = _public_line(ed25519.Ed25519PrivateKey.generate())
     _user_with_saved_weak_key(api, home, weak, strong)
 
-    assert api.save_user(_user_payload(home, [strong, weak], []), original="alice") == {
+    assert api.save_user(_edit_payload(api, _user_payload(home, [strong, weak], [])), original="alice") == {
         "ok": False, "error": ("Key 2 is a 1024-bit RSA key, which is too weak to turn on. "
                                "Close this window and try again.")}
 
@@ -523,7 +529,7 @@ def test_user_whose_only_key_is_weak_needs_a_valid_key_to_save(tmp_path, monkeyp
     weak = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=1024))
     _user_with_saved_weak_key(api, home, weak)
 
-    assert api.save_user(_user_payload(home, [], [weak]), original="alice") == {
+    assert api.save_user(_edit_payload(api, _user_payload(home, [], [weak])), original="alice") == {
         "ok": False, "error": "Add at least one valid public key (or switch to password auth)."}
 
 
@@ -540,7 +546,7 @@ def test_save_user_refuses_another_weak_rsa_key(tmp_path, monkeypatch):
 
     strong = _public_line(ed25519.Ed25519PrivateKey.generate())
 
-    result = api.save_user(_user_payload(home, [strong], [saved, new]), original="alice")
+    result = api.save_user(_edit_payload(api, _user_payload(home, [strong], [saved, new])), original="alice")
 
     assert result == {"ok": False, "error": (
         "Off key 2 is a 1024-bit RSA key, which is too weak. Remove it before saving.")}
@@ -556,7 +562,7 @@ def test_save_user_survives_non_text_entry_in_saved_off_keys(tmp_path, monkeypat
                      "auth": "key", "authorized_keys": [key], "disabled_keys": [None, 5]}]
     assert api._save_config(cfg) is True
 
-    assert api.save_user(_user_payload(home, [key]), original="alice")["ok"] is True
+    assert api.save_user(_edit_payload(api, _user_payload(home, [key])), original="alice")["ok"] is True
 
 
 def test_over_limit_existing_user_can_rename_or_remove_but_not_add(tmp_path, monkeypatch):
@@ -569,13 +575,13 @@ def test_over_limit_existing_user_can_rename_or_remove_but_not_add(tmp_path, mon
                      "auth": "key", "authorized_keys": keys}]
     assert api._save_config(cfg) is True
 
-    assert api.save_user(_user_payload(home, keys), original="alice")["ok"] is True
+    assert api.save_user(_edit_payload(api, _user_payload(home, keys)), original="alice")["ok"] is True
     renamed = keys.copy()
     renamed[0] = renamed[0].rsplit(" ", 1)[0] + " renamed"
-    assert api.save_user(_user_payload(home, renamed), original="alice")["ok"] is True
-    assert api.save_user(_user_payload(home, renamed[:-1]), original="alice")["ok"] is True
+    assert api.save_user(_edit_payload(api, _user_payload(home, renamed)), original="alice")["ok"] is True
+    assert api.save_user(_edit_payload(api, _user_payload(home, renamed[:-1])), original="alice")["ok"] is True
     extra = _public_line(ed25519.Ed25519PrivateKey.generate(), "extra")
-    result = api.save_user(_user_payload(home, renamed + [extra]), original="alice")
+    result = api.save_user(_edit_payload(api, _user_payload(home, renamed + [extra])), original="alice")
     assert result["ok"] is False
     assert "at most 25" in result["error"]
 
@@ -614,7 +620,7 @@ def test_save_user_disconnects_only_when_access_changes(tmp_path, monkeypatch):
 
     renamed = first.rsplit(" ", 1)[0] + " renamed"
     for keys in ([renamed], [renamed]):
-        result = api.save_user(_user_payload(home, keys), original="alice")
+        result = api.save_user(_edit_payload(api, _user_payload(home, keys)), original="alice")
         assert result["access_changed"] is False
         assert result["disconnected"] == 0
     for payload in (
@@ -623,7 +629,7 @@ def test_save_user_disconnects_only_when_access_changes(tmp_path, monkeypatch):
         {**_user_payload(home, [renamed]), "auth": "both", "password": "a password"},
         {**_user_payload(home, [renamed]), "permissions": {**_perms(), "download": False}},
     ):
-        result = api.save_user(payload, original="alice")
+        result = api.save_user(_edit_payload(api, payload), original="alice")
         assert result["access_changed"] is True
         assert result["disconnected"] == 1
     assert calls == ["alice"] * 4
@@ -651,7 +657,8 @@ def test_password_only_save_drops_authorized_keys(tmp_path, monkeypatch):
     assert api.save_user(_user_payload(home, [line]))["ok"] is True
 
     result = api.save_user({"username": "alice", "home": str(home), "permissions": _perms(),
-                            "auth": "password", "password": "a password"}, original="alice")
+                            "auth": "password", "password": "a password", "rev": _edit_payload(
+                                api, _user_payload(home, [line]))["rev"]}, original="alice")
 
     assert result["ok"] is True
     assert "authorized_keys" not in api._load_config()["users"][0]
@@ -669,7 +676,7 @@ def test_save_user_stores_enabled_and_disabled_key_lists(tmp_path, monkeypatch):
     user = api._load_config()["users"][0]
     assert user["authorized_keys"] == [enabled]
     assert user["disabled_keys"] == [disabled]
-    assert api.save_user(_user_payload(home, [enabled], []), original="alice")["ok"] is True
+    assert api.save_user(_edit_payload(api, _user_payload(home, [enabled], [])), original="alice")["ok"] is True
     assert "disabled_keys" not in api._load_config()["users"][0]
 
 
@@ -712,7 +719,7 @@ def test_older_style_save_preserves_disabled_keys(tmp_path, monkeypatch):
     disabled = _public_line(ed25519.Ed25519PrivateKey.generate(), "disabled")
     assert api.save_user(_user_payload(home, [enabled], [disabled]))["ok"] is True
 
-    assert api.save_user(_user_payload(home, [enabled]), original="alice")["ok"] is True
+    assert api.save_user(_edit_payload(api, _user_payload(home, [enabled])), original="alice")["ok"] is True
 
     assert api._load_config()["users"][0]["disabled_keys"] == [disabled]
 
@@ -760,7 +767,7 @@ def test_save_user_counts_enabled_and_disabled_keys_toward_limit(tmp_path, monke
     cfg["users"] = [{"username": "alice", "home": str(home), "permissions": _perms(),
                      "auth": "key", "authorized_keys": enabled, "disabled_keys": disabled}]
     assert api._save_config(cfg) is True
-    assert api.save_user(_user_payload(home, enabled, disabled), original="alice")["ok"] is True
+    assert api.save_user(_edit_payload(api, _user_payload(home, enabled, disabled)), original="alice")["ok"] is True
 
 
 def test_password_only_save_drops_enabled_and_disabled_keys(tmp_path, monkeypatch):
@@ -772,7 +779,8 @@ def test_password_only_save_drops_enabled_and_disabled_keys(tmp_path, monkeypatc
     assert api.save_user(_user_payload(home, [enabled], [disabled]))["ok"] is True
 
     result = api.save_user({"username": "alice", "home": str(home), "permissions": _perms(),
-                            "auth": "password", "password": "a password"}, original="alice")
+                            "auth": "password", "password": "a password", "rev": _edit_payload(
+                                api, _user_payload(home, [enabled], [disabled]))["rev"]}, original="alice")
 
     assert result["ok"] is True
     user = api._load_config()["users"][0]
@@ -788,9 +796,9 @@ def test_save_user_reports_access_change_for_disabled_key_only(tmp_path, monkeyp
     second = _public_line(ed25519.Ed25519PrivateKey.generate(), "second")
     assert api.save_user(_user_payload(home, [first]))["ok"] is True
 
-    turned_off = api.save_user(_user_payload(home, [second], [first]), original="alice")
+    turned_off = api.save_user(_edit_payload(api, _user_payload(home, [second], [first])), original="alice")
     renamed = first.rsplit(" ", 1)[0] + " renamed"
-    renamed_off = api.save_user(_user_payload(home, [second], [renamed]), original="alice")
+    renamed_off = api.save_user(_edit_payload(api, _user_payload(home, [second], [renamed])), original="alice")
 
     assert turned_off["access_changed"] is True
     assert renamed_off["access_changed"] is False

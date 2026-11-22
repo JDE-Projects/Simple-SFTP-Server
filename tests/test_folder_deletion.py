@@ -90,6 +90,7 @@ def test_edit_managed_user_without_home_change_stays_managed(tmp_path, monkeypat
         "permissions": {"list": True, "download": True, "upload": True},
         "auth": "password",
         "password": "",
+        "rev": api._public_users(api._load_config())[0]["rev"],
     }, original="dave")
     assert result["ok"] is True
 
@@ -112,6 +113,7 @@ def test_edit_managed_user_changing_home_drops_managed(tmp_path, monkeypatch):
         "permissions": {"list": True, "download": True},
         "auth": "password",
         "password": "",
+        "rev": api._public_users(api._load_config())[0]["rev"],
     }, original="erin")
     assert result["ok"] is True
 

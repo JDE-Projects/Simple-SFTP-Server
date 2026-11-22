@@ -100,7 +100,8 @@ def test_revoking_a_user_kicks_their_live_client(tmp_path, monkeypatch):
 
         r = api.save_user({"username": "bob", "home": str(home),
                             "permissions": _perms(download=False), "auth": "password",
-                            "password": "a new horse battery staple"}, original="bob")
+                            "password": "a new horse battery staple",
+                            "rev": api._public_users(api._load_config())[0]["rev"]}, original="bob")
         assert r["ok"], r
 
         assert api._service.active_conns() == []
