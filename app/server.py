@@ -16,7 +16,7 @@ from app.debug_log import debug, describe_error, describe_failure
 from app.helpers import fingerprint_sha256, friendly_error, human_size
 from app.services.hostkey import HostKeyError, load_or_create_host_key
 from app.services.passwords import _DUMMY_PASSWORD_HASH, verify_password
-from app.services.pubkeys import key_identity
+from app.services.pubkeys import key_identity, weak_key_bits
 
 
 # How often the live view is refreshed. All per-file state is recorded in memory
@@ -681,6 +681,13 @@ class ServerIface(paramiko.ServerInterface):
 
     def check_auth_publickey(self, username, key):
         if self.service.lockout.is_locked(self.ip, username):
+            return paramiko.AUTH_FAILED
+        bits = weak_key_bits(key)
+        if bits is not None:
+            # RSA keys under MIN_RSA_KEY_BITS are refused even when saved on
+            # the account. Not counted toward lockout, for the reason given
+            # at the end of this method.
+            debug._log("auth fail (key too weak)", {"ip": self.ip, "bits": bits})
             return paramiko.AUTH_FAILED
         u = self.service.find_user(username)
         if u and u.get("auth") in ("key", "both"):

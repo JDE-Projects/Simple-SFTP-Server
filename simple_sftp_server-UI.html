@@ -202,7 +202,10 @@
   .key-row .key-state{font-size:11px;color:var(--text-dim);min-width:22px;}
   .key-row.key-off .key-type,.key-row.key-off .key-name,.key-row.key-off .key-fingerprint{opacity:.45;}
   .key-row .key-remove{flex:0 0 auto;}
-  .key-note{font-size:10px;color:var(--text-dim);margin:-2px 0 1px;}
+  .key-row .key-toggle.key-locked{opacity:.45;cursor:not-allowed;}
+  .key-row .key-toggle.key-locked input{cursor:not-allowed;}
+  .key-note{font-size:10px;color:var(--text-dim);margin:4px 0 0;padding-left:8px;line-height:1.35;}
+  .key-note.warn{font-size:11px;color:var(--amber);font-style:italic;}
   .errline.info{color:var(--text-dim);}
   .seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--border-2);border-radius:var(--radius-sm);padding:3px;gap:2px;}
   .seg button{padding:5px 12px;font-weight:500;background:transparent;border:none;color:var(--text-dim);border-radius:6px;}
@@ -586,11 +589,13 @@ function renderKeyList(){
       const input=document.createElement("input");input.type="checkbox";input.checked=key.enabled!==false;input.setAttribute("aria-label",toggle.getAttribute("aria-label"));input.onchange=()=>{key.enabled=input.checked;renderKeyList();};
       const switchEl=document.createElement("span");switchEl.className="switch";
       const state=document.createElement("span");state.className="key-state";state.textContent=key.enabled===false?"Off":"On";
-      toggle.title=key.enabled===false?"Off: this key cannot sign in. Turn it on to allow it.":"On: this key can sign in. Turn it off to block it without removing it.";
+      toggle.title=key.weak?"Off: this key is too weak to sign in and can't be turned on.":key.enabled===false?"Off: this key cannot sign in. Turn it on to allow it.":"On: this key can sign in. Turn it off to block it without removing it.";
+      if(key.weak){input.disabled=true;toggle.classList.add("key-locked");}
       toggle.append(input,switchEl,state);row.append(toggle);
     }
     const remove=document.createElement("button");remove.type="button";remove.className="btn-ghost btn-sm key-remove";remove.textContent="Remove";remove.onclick=()=>{workingKeys.splice(index,1);renderKeyList();};row.append(remove);wrap.append(row);
-    if(key.name_problem){const note=document.createElement("div");note.className="key-note";note.textContent="Rename this key: its name is too long or has hidden characters.";wrap.append(note);}
+    if(key.weak){const note=document.createElement("div");note.className="key-note warn";note.textContent="Too weak ("+key.weak+"-bit RSA): this key can't be turned on. Replace it with a stronger one.";wrap.append(note);}
+    if(key.name_problem){const note=document.createElement("div");note.className="key-note warn";note.textContent="Rename this key: its name is too long or has hidden characters.";wrap.append(note);}
     list.append(wrap);
   });
 }
@@ -1061,7 +1066,8 @@ function openUser(u){
   $("umKeys").value="";
   $("umKeyName").value="";$("umKeyName").disabled=false;$("umKeyNameHint").style.display="none";
   friendlyNameEdited=false;setKeyMessage("");setKeyBusy(false);
-  workingKeys=u&&Array.isArray(u.keys)?u.keys.map(key=>({...key})):[];
+  // A key too weak to sign in is always off, so saving stores it with the off keys.
+  workingKeys=u&&Array.isArray(u.keys)?u.keys.map(key=>({...key,...(key.weak?{enabled:false}:{})})):[];
   renderKeyList();
   $("umPwHint").textContent=u?"Leave blank to keep the current password.":"Stored as a one-way hash. Not shown again after saving.";
   // permissions: default to list-only for new users
@@ -1175,7 +1181,7 @@ async function onSaveUser(){
     home:$("umHome").value.trim(),auth:authMode,password:$("umPw").value,
     authorized_keys:workingKeys.filter(key=>key.enabled!==false).map(key=>key.line),
     disabled_keys:workingKeys.filter(key=>key.enabled===false).map(key=>key.line)};
-  if((authMode==="key"||authMode==="both")&&!p.authorized_keys.length){setKeyMessage(p.disabled_keys.length?"Turn on at least one key (or switch to password auth).":"Add at least one public key (or switch to password auth).");setKeyBusy(false);return;}
+  if((authMode==="key"||authMode==="both")&&!p.authorized_keys.length){setKeyMessage(workingKeys.some(key=>key.enabled===false&&!key.weak)?"Turn on at least one key (or switch to password auth).":"Add at least one valid public key (or switch to password auth).");setKeyBusy(false);return;}
   const warn=editingOriginal&&changesAccess(p)?disconnectWarning(editingOriginal):"";
   // Password-only sign-in deletes the user's keys on save, so say so first.
   const keyLoss=authMode==="password"&&workingKeys.length

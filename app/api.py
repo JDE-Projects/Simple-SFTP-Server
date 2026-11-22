@@ -23,8 +23,10 @@ from app.services.pubkeys import (
     is_valid_key,
     key_identity,
     key_name_problem,
+    key_strength_problem,
     read_keys,
     read_keys_file,
+    weak_line_bits,
 )
 from app.services.safety import blocked_reason
 from app.services.updates import check_update as _check_update
@@ -176,17 +178,20 @@ class Api:
                                  "type": described["type"] if described else "",
                                  "comment": described["comment"] if described else "",
                                  "fingerprint": described["fingerprint"] if described else "",
-                                 "name_problem": key_name_problem(stored_key)})
+                                 "name_problem": key_name_problem(stored_key),
+                                 "weak": weak_line_bits(normalized) if valid else None})
             valid_keys = [key for key in keys if key["valid"] and key["enabled"]]
+            strong_valid_keys = [key for key in valid_keys if key["weak"] is None]
             valid_off_keys = [key for key in keys if key["valid"] and not key["enabled"]]
+            summary_key = strong_valid_keys or valid_keys
             out.append({"username": u.get("username"), "home": u.get("home"),
                         "permissions": perms_for(u),
                         "auth": u.get("auth", "password"),
                         "has_password": bool(u.get("password_hash")),
-                        "key": ({"type": valid_keys[0]["type"],
-                                 "comment": valid_keys[0]["comment"],
-                                 "fingerprint": valid_keys[0]["fingerprint"]}
-                                if valid_keys else None),
+                        "key": ({"type": summary_key[0]["type"],
+                                 "comment": summary_key[0]["comment"],
+                                 "fingerprint": summary_key[0]["fingerprint"]}
+                                if summary_key else None),
                         "keys": keys,
                         "key_count": len(valid_keys),
                         "off_count": len(valid_off_keys),
@@ -231,6 +236,9 @@ class Api:
             lines, error = read_keys_file(path)
             if error:
                 return {"ok": False, "error": error}
+            strength_error = self._key_strength_error(lines)
+            if strength_error:
+                return {"ok": False, "error": strength_error}
             return {"ok": True, "keys": self._key_results(lines)}
         except Exception as e:
             return {"ok": False, "error": friendly_error(e)}
@@ -328,7 +336,7 @@ class Api:
                 if error:
                     return {"ok": False, "error": error}
             if not deduplicated_keys:
-                return {"ok": False, "error": "Add at least one public key (or switch to password auth)."}
+                return {"ok": False, "error": "Add at least one valid public key (or switch to password auth)."}
         with self._cfg_lock:
             cfg = self._load_config()
             users = cfg.get("users", [])
@@ -348,8 +356,6 @@ class Api:
                 if on_identities & off_identities:
                     return {"ok": False,
                             "error": "A key can't be both on and off. Close this window and try again."}
-            if auth in ("key", "both") and \
-                    len(deduplicated_keys) + len(final_disabled_keys) > MAX_KEYS_PER_USER:
                 existing_identities = {
                     key_identity(key) for key in existing.get("authorized_keys", [])
                     if isinstance(key, str) and key_identity(key) is not None
@@ -358,6 +364,27 @@ class Api:
                     existing_identities.update(
                         key_identity(key) for key in existing.get("disabled_keys", [])
                         if isinstance(key, str) and key_identity(key) is not None)
+                # A weak key already saved on this user may stay, but only as an
+                # off key. A new weak key is refused outright.
+                for position, key in enumerate(deduplicated_keys, start=1):
+                    bits = weak_line_bits(key)
+                    if bits is None:
+                        continue
+                    if key_identity(key) in existing_identities:
+                        return {"ok": False,
+                                "error": (f"Key {position} is a {bits}-bit RSA key, which is too "
+                                          "weak to turn on. Close this window and try again.")}
+                    return {"ok": False,
+                            "error": (f"Key {position} is a {bits}-bit RSA key, "
+                                      "which is too weak. Remove it before saving.")}
+                for position, key in enumerate(final_disabled_keys, start=1):
+                    bits = weak_line_bits(key)
+                    if bits is not None and key_identity(key) not in existing_identities:
+                        return {"ok": False,
+                                "error": (f"Off key {position} is a {bits}-bit RSA key, "
+                                          "which is too weak. Remove it before saving.")}
+            if auth in ("key", "both") and \
+                    len(deduplicated_keys) + len(final_disabled_keys) > MAX_KEYS_PER_USER:
                 submitted_keys = deduplicated_keys + (
                     deduplicated_disabled_keys if disabled_keys_supplied else [])
                 if not all(key_identity(key) in existing_identities for key in submitted_keys):
@@ -475,7 +502,18 @@ class Api:
         lines, error = read_keys(text)
         if error:
             return {"ok": False, "error": error}
+        strength_error = self._key_strength_error(lines)
+        if strength_error:
+            return {"ok": False, "error": strength_error}
         return {"ok": True, "keys": self._key_results(lines)}
+
+    @staticmethod
+    def _key_strength_error(lines):
+        for position, line in enumerate(lines, start=1):
+            problem = key_strength_problem(line)
+            if problem:
+                return problem if len(lines) == 1 else f"Key {position}: {problem}"
+        return None
 
     @staticmethod
     def _key_results(lines):

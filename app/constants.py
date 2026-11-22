@@ -3,6 +3,7 @@ GITHUB_REPO = "JDE-Projects/Simple-SFTP-Server"
 ALLOWED_URL_HOST = "jde-projects.com"
 DEFAULT_PORT = 2222
 MAX_KEYS_PER_USER = 25
+MIN_RSA_KEY_BITS = 2048
 
 DISABLED_ALGORITHMS = {
     "kex": ["diffie-hellman-group1-sha1", "diffie-hellman-group14-sha1",
@@ -11,6 +12,7 @@ DISABLED_ALGORITHMS = {
                 "blowfish-cbc", "cast128-cbc", "arcfour", "arcfour128", "arcfour256"],
     "macs": ["hmac-md5", "hmac-md5-96", "hmac-sha1-96", "hmac-sha1"],
     "keys": ["ssh-dss"],
+    "pubkeys": ["ssh-rsa"],
 }
 
 LOCKOUT_THRESHOLD = 5

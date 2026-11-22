@@ -6,6 +6,7 @@ import unicodedata
 
 import paramiko
 
+from app.constants import MIN_RSA_KEY_BITS
 from app.helpers import fingerprint_sha256, friendly_error
 
 INVALID_KEY_MESSAGE = (
@@ -28,6 +29,35 @@ def is_valid_key(line):
         return key.get_base64() == parts[1]
     except Exception:  # noqa: BLE001 - paramiko raises several key-format exceptions
         return False
+
+
+def weak_key_bits(key):
+    """Return the bit length when an RSA key is below the minimum."""
+    if isinstance(key, paramiko.RSAKey) and key.get_bits() < MIN_RSA_KEY_BITS:
+        return key.get_bits()
+    return None
+
+
+def weak_line_bits(line):
+    """Return the bit length when a key line holds an RSA key below the minimum.
+
+    Anything that is not a valid key line returns None: validity is
+    is_valid_key's job, and a hand-edited config must not break a save."""
+    if not isinstance(line, str) or not is_valid_key(line):
+        return None
+    try:
+        return weak_key_bits(_load_key(line))
+    except Exception:  # noqa: BLE001 - malformed saved keys are handled elsewhere
+        return None
+
+
+def key_strength_problem(line):
+    """Return a user-facing message when a public key is too weak."""
+    bits = weak_line_bits(line)
+    if bits is None:
+        return None
+    return (f"This is a {bits}-bit RSA key, which is too weak. Use an RSA key of "
+            f"{MIN_RSA_KEY_BITS} bits or more, or an Ed25519 key.")
 
 
 def _read_rfc4716_key(text):

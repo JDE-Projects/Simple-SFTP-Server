@@ -51,7 +51,7 @@ def _iface(user):
 
 
 def _key_user(tmp_path, auth="key", comment="old"):
-    key = paramiko.RSAKey.generate(1024)
+    key = paramiko.RSAKey.generate(2048)
     line = authorized_key_line(key) + " " + comment
     return make_user("alice", tmp_path, _perms(), auth=auth, authorized_keys=[line]), key, line
 
@@ -197,7 +197,7 @@ def test_real_password_and_key_sign_in_still_work(tmp_path, sftp_server):
     home = tmp_path / "home"
     home.mkdir()
     (home / "file.txt").write_text("contents")
-    key = paramiko.RSAKey.generate(1024)
+    key = paramiko.RSAKey.generate(2048)
     user = make_user("alice", home, _perms(), auth="both", password=PASSWORD,
                      authorized_keys=[authorized_key_line(key)])
     handle = sftp_server([user])
