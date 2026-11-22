@@ -35,7 +35,8 @@ If you enjoyed this project and would like to buy me a coffee, check out my [Ko-
   fingerprint, all copyable for first-connection verification.
 - Live panel: connected clients with what each one is doing right now (listing a
   folder, reading file details, transferring), running request counts and bytes
-  moved, in-flight transfers, a recent-activity feed, and locked-out IPs with
+  moved, in-flight transfers, a recent-activity feed (each sign-in shows the
+  user and which key or password they used), and locked-out IPs with
   one-click Unlock.
 - Brute-force lockout: repeated wrong passwords block that account for fifteen
   minutes, with an address-level backstop against password spraying and a
@@ -206,7 +207,8 @@ separately from Windows Defender Firewall.
   that file as private and do not commit it.
 - The optional debug log is off by default; when on it writes
   `Debug_Log_MMDDYYYY_HHMMSS.txt` next to the app. It records event names,
-  outcomes, IP addresses, and the kind of each error, never usernames, typed
+  outcomes, IP addresses, how each client signed in (password, or the short ID
+  of the key), and the kind of each error, never usernames, key names, typed
   text, file paths, or error messages. A redaction pass on every entry is a
   second guard against passwords and key material. Each file stops at 5 MiB and
   logging continues in a new file. The app keeps the current file plus up to 3

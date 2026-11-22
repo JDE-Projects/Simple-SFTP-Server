@@ -13,7 +13,7 @@ from app.constants import (DEFAULT_PORT, DISABLED_ALGORITHMS, FAIL_RECORD_TTL_SE
                             LOCKOUT_THRESHOLD, MAX_PER_IP_CONNECTIONS, MAX_READ_LENGTH,
                             MAX_TOTAL_CONNECTIONS, MAX_TRACKED_IPS)
 from app.debug_log import debug, describe_error, describe_failure
-from app.helpers import friendly_error, human_size
+from app.helpers import fingerprint_sha256, friendly_error, human_size
 from app.services.hostkey import HostKeyError, load_or_create_host_key
 from app.services.passwords import _DUMMY_PASSWORD_HASH, verify_password
 
@@ -24,6 +24,23 @@ from app.services.passwords import _DUMMY_PASSWORD_HASH, verify_password
 PUMP_INTERVAL = 0.25   # seconds between coalesced UI pushes (about 4 per second)
 ACTIVITY_MAX = 40      # the window keeps only the last 40 activity lines
 SHUTDOWN_TIMEOUT = 5.0 # seconds Stop will wait for all threads to finish
+
+
+def short_key_id(fingerprint, ending="…"):
+    """The first 10 characters of a SHA256 fingerprint, as the window shows it."""
+    return fingerprint.removeprefix("SHA256:")[:10] + ending
+
+
+def sign_in_text(username, key_line=None, key_fingerprint=None):
+    """Format the activity detail for a completed password or key sign-in."""
+    if key_line is None or key_fingerprint is None:
+        return f"{username}, password"
+    parts = key_line.split()
+    key_name = " ".join(parts[2:])[:100]
+    key_id = short_key_id(key_fingerprint)
+    if not key_name:
+        return f"{username}, key (no name) (ID {key_id})"
+    return f'{username}, key "{key_name}" (ID {key_id})'
 
 
 # ───────────── lockout ─────────────
@@ -621,7 +638,10 @@ class ServerIface(paramiko.ServerInterface):
         self.transport = transport
         self.username = None
         self.user = None
-        # Accounts whose public key matched, by username. A match alone is
+        self.key_line = None
+        self.key_fingerprint = None
+        # Accounts whose public key matched, by username: the user, the
+        # stored key line that matched, and its fingerprint. A match alone is
         # not a sign-in: the client has not yet proven it holds the private
         # key. The sign-in is recorded when the session opens (see
         # _finish_sign_in), which Paramiko allows only after the proof passed.
@@ -669,7 +689,7 @@ class ServerIface(paramiko.ServerInterface):
                     continue
                 parts = ak.split()
                 if len(parts) >= 2 and parts[1] == offered:
-                    self._key_matches[username] = u
+                    self._key_matches[username] = (u, ak, fingerprint_sha256(key))
                     return paramiko.AUTH_SUCCESSFUL
         # A rejected key is not counted toward lockout. Every account offers
         # key sign-in, so clients try each key they hold before asking for a
@@ -679,9 +699,11 @@ class ServerIface(paramiko.ServerInterface):
         debug._log("auth fail (key)", {"ip": self.ip})
         return paramiko.AUTH_FAILED
 
-    def _win(self, username, user):
+    def _win(self, username, user, key_line=None, key_fingerprint=None):
         self.username = username
         self.user = user
+        self.key_line = key_line
+        self.key_fingerprint = key_fingerprint
         self.service.lockout.clear(self.ip, username)
 
     def _finish_sign_in(self):
@@ -691,10 +713,11 @@ class ServerIface(paramiko.ServerInterface):
         if self.username is not None:
             return True
         name = self.transport.get_username() if self.transport else None
-        user = self._key_matches.get(name)
-        if user is None:
+        match = self._key_matches.get(name)
+        if match is None:
             return False
-        self._win(name, user)
+        user, key_line, key_fingerprint = match
+        self._win(name, user, key_line, key_fingerprint)
         return True
 
     def check_channel_request(self, kind, chanid):
@@ -1020,8 +1043,14 @@ class SFTPService:
                                        "stats": 0, "bytes": 0}
                 if sid in self._conns:
                     self._conns[sid]["user"] = server.username
-            debug._log("client connected", {"ip": ip})
-            self.activity(sid, "connected", "")
+            if server.key_line is None:
+                debug._log("client connected", {"ip": ip, "method": "password"})
+            else:
+                # Plain dots: the log file escapes non-ASCII characters.
+                key_id = "SHA256:" + short_key_id(server.key_fingerprint, "...")
+                debug._log("client connected", {"ip": ip, "method": "key", "key_id": key_id})
+            self.activity(sid, "connected",
+                          sign_in_text(server.username, server.key_line, server.key_fingerprint))
             while t.is_active() and self._run_is_current(gen):
                 time.sleep(0.5)
         except paramiko.SSHException as e:
