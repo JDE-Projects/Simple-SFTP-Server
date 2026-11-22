@@ -397,6 +397,7 @@ def test_save_user_replaces_stored_key_list(tmp_path, monkeypatch):
     result = api.save_user({
         "username": "alice", "home": str(home), "permissions": _perms(),
         "auth": "key", "authorized_keys": [second["public"]],
+        "rev": api._public_users(api._load_config())[0]["rev"],
     }, original="alice")
 
     assert result["ok"] is True

@@ -166,7 +166,8 @@ def test_rename_disconnects_old_and_new_name(tmp_path, monkeypatch):
                               "ip": "127.0.0.1", "user": "old"}
 
     result = api.save_user({"username": "new", "home": str(home), "permissions": _perms(),
-                            "auth": "password", "password": PASSWORD}, original="old")
+                            "auth": "password", "password": PASSWORD,
+                            "rev": api._public_users(api._load_config())[0]["rev"]}, original="old")
 
     assert result["ok"] is True
     assert result["disconnected"] == 1

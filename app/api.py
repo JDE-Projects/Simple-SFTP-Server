@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import shutil
@@ -31,6 +32,11 @@ from app.services.pubkeys import (
 from app.services.safety import blocked_reason
 from app.services.updates import check_update as _check_update
 from app.services.usernames import validate_username
+
+
+def _user_revision(record):
+    encoded = json.dumps(record, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _is_allowed_url(url):
@@ -185,6 +191,7 @@ class Api:
             valid_off_keys = [key for key in keys if key["valid"] and not key["enabled"]]
             summary_key = strong_valid_keys or valid_keys
             out.append({"username": u.get("username"), "home": u.get("home"),
+                        "rev": _user_revision(u),
                         "permissions": perms_for(u),
                         "auth": u.get("auth", "password"),
                         "has_password": bool(u.get("password_hash")),
@@ -289,11 +296,6 @@ class Api:
         home = (p.get("home") or "").strip()
         if not home:
             return {"ok": False, "error": "Choose a folder for this user."}
-        if not os.path.isdir(home):
-            try:
-                os.makedirs(home, exist_ok=True)
-            except Exception as e:
-                return {"ok": False, "error": "Could not create that folder: " + friendly_error(e)}
         # permissions
         perms_in = p.get("permissions") or {}
         if not isinstance(perms_in, dict):
@@ -339,6 +341,19 @@ class Api:
                 return {"ok": False, "error": "Add at least one valid public key (or switch to password auth)."}
         with self._cfg_lock:
             cfg = self._load_config()
+            if original:
+                stored_record = next(
+                    (u for u in cfg.get("users", []) if u.get("username") == original), None)
+                revision = p.get("rev")
+                if stored_record is None or not isinstance(revision, str) or \
+                        revision != _user_revision(stored_record):
+                    return {
+                        "ok": False,
+                        "stale": True,
+                        "users": self._public_users(cfg),
+                        "error": ("This user was changed outside the app since you opened this window. "
+                                  "Close it and open the user again."),
+                    }
             users = cfg.get("users", [])
             for u in users:
                 if u.get("username") == username and username != (original or ""):
@@ -398,6 +413,16 @@ class Api:
                 key_identity(key) for key in existing.get("authorized_keys", [])
                 if isinstance(key, str) and key_identity(key) is not None
             } if existing else set()
+            plain = p.get("password") or ""
+            if auth in ("password", "both") and not plain and \
+                    not (existing and existing.get("password_hash")):
+                return {"ok": False, "error": "Set a password for this user (or switch to key auth)."}
+            if not os.path.isdir(home):
+                try:
+                    os.makedirs(home, exist_ok=True)
+                except Exception as e:
+                    return {"ok": False,
+                            "error": "Could not create that folder: " + friendly_error(e)}
             # Capture the prior home and managed state before rec (which may
             # be the same dict as existing) gets overwritten below.
             prev_home = existing.get("home", "") if existing else ""
@@ -424,12 +449,9 @@ class Api:
                 rec["managed_folder"] = True
             else:
                 rec.pop("managed_folder", None)
-            plain = p.get("password") or ""
             if auth in ("password", "both"):
                 if plain:
                     rec["password_hash"] = hash_password(plain)
-                elif not rec.get("password_hash"):
-                    return {"ok": False, "error": "Set a password for this user (or switch to key auth)."}
             else:
                 rec.pop("password_hash", None)
             if auth in ("key", "both"):

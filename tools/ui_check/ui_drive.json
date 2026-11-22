@@ -43,6 +43,11 @@
       "script": "tools/ui_check/window_fit.js",
       "fixture": "tools/ui_check/window_fit_offscreen_fixture.py",
       "timeout_s": 120
+    },
+    "stale-save": {
+      "script": "tools/ui_check/stale_save.js",
+      "fixture": "tools/ui_check/fixture_stale_save.py",
+      "timeout_s": 120
     }
   }
 }

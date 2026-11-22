@@ -1179,6 +1179,7 @@ async function onSaveUser(){
   if(workingKeys.some(key=>key.name_problem)){setKeyMessage("Rename or remove the key whose name is too long or has hidden characters before saving.");setKeyBusy(false);return;}
   const p={username:$("umUser").value.trim(),permissions:perms,
     home:$("umHome").value.trim(),auth:authMode,password:$("umPw").value,
+    rev:editingUser?editingUser.rev:undefined,
     authorized_keys:workingKeys.filter(key=>key.enabled!==false).map(key=>key.line),
     disabled_keys:workingKeys.filter(key=>key.enabled===false).map(key=>key.line)};
   if((authMode==="key"||authMode==="both")&&!p.authorized_keys.length){setKeyMessage(workingKeys.some(key=>key.enabled===false&&!key.weak)?"Turn on at least one key (or switch to password auth).":"Add at least one valid public key (or switch to password auth).");setKeyBusy(false);return;}
@@ -1205,7 +1206,7 @@ async function doSaveUser(p,token){
   const r=await API.save_user(p,editingOriginal);
   if(!activeKeySession(token))return;
   setKeyBusy(false);
-  if(!r.ok){toast(r.error||"Could not save.",true);return;}
+  if(!r.ok){if(Array.isArray(r.users)){users=r.users;renderUsers();}toast(r.error||"Could not save.",true);return;}
   users=r.users;renderUsers();
   closeModal("userModal");
   toast("User saved.");
