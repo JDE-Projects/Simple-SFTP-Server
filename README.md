@@ -30,7 +30,9 @@ If you enjoyed this project and would like to buy me a coffee, check out my [Ko-
   sign in until it is turned back on. Keys can be picked from a .pub file
   (PuTTYgen's saved format is converted),
   pasted, or made with the built-in Ed25519 (default) or RSA-4096 key
-  generator.
+  generator. RSA keys must be 2048 bits or larger: a smaller one cannot be
+  added, and one already saved is kept but turned off, marked as too weak,
+  and can't be turned back on.
 - Connection card: LAN address, on-demand public IP, port, and the host-key
   fingerprint, all copyable for first-connection verification.
 - Live panel: connected clients with what each one is doing right now (listing a
@@ -202,7 +204,9 @@ separately from Windows Defender Firewall.
   the server's replies don't reveal which accounts exist or how they sign in.
   Each account still only accepts the method it is set to.
 - Only modern, secure key-exchange, ciphers, and MACs are offered; known-weak
-  algorithms are disabled. There is no "compatibility" downgrade.
+  algorithms are disabled. There is no "compatibility" downgrade. Key sign-in
+  accepts only SHA-2 signatures from RSA keys (old SHA-1 `ssh-rsa` signatures
+  are refused), and RSA keys under 2048 bits are refused.
 - The host key persists next to the app so its fingerprint is stable; treat
   that file as private and do not commit it.
 - The optional debug log is off by default; when on it writes

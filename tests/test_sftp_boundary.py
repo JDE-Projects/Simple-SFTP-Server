@@ -13,6 +13,10 @@ import time
 
 import paramiko
 import pytest
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+from paramiko import Message
+from paramiko.auth_handler import AuthHandler
 from paramiko.sftp import CMD_DATA, CMD_FSETSTAT, CMD_READ, CMD_SETSTAT, int64
 
 import app.server as server_module
@@ -88,6 +92,52 @@ def test_key_auth_authorized_key_connects(tmp_path, sftp_server):
     handle = sftp_server([user])
 
     client, sftp = sftp_key(handle.port, "alice", client_key)
+    try:
+        assert sftp.listdir(".") == []
+    finally:
+        _close(client, sftp)
+
+
+def test_weak_rsa_key_is_refused_but_strong_rsa_key_connects(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    weak_key = paramiko.RSAKey.generate(1024)
+    strong_key = paramiko.RSAKey.generate(2048)
+    user = make_user("alice", home, _perms(), auth="key",
+                     authorized_keys=[authorized_key_line(weak_key), authorized_key_line(strong_key)])
+    handle = sftp_server([user])
+
+    with pytest.raises(paramiko.AuthenticationException):
+        sftp_key(handle.port, "alice", weak_key)
+    client, sftp = sftp_key(handle.port, "alice", strong_key)
+    try:
+        assert sftp.listdir(".") == []
+    finally:
+        _close(client, sftp)
+
+
+def test_sha1_rsa_signature_is_refused_while_sha256_connects(tmp_path, sftp_server, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    key = paramiko.RSAKey.generate(2048)
+    handle = sftp_server([make_user("alice", home, _perms(), auth="key",
+                                    authorized_keys=[authorized_key_line(key)])])
+
+    monkeypatch.setattr(AuthHandler, "_finalize_pubkey_algorithm", lambda self, key_type: "ssh-rsa")
+
+    def sign_ssh_data_sha1(self, data, algorithm=None):
+        signature = self.key.sign(data, padding.PKCS1v15(), hashes.SHA1())
+        message = Message()
+        message.add_string("ssh-rsa")
+        message.add_string(signature)
+        return message
+
+    monkeypatch.setattr(paramiko.RSAKey, "sign_ssh_data", sign_ssh_data_sha1)
+    with pytest.raises((paramiko.AuthenticationException, paramiko.SSHException)):
+        sftp_key(handle.port, "alice", key, timeout=2)
+
+    monkeypatch.undo()
+    client, sftp = sftp_key(handle.port, "alice", key)
     try:
         assert sftp.listdir(".") == []
     finally:

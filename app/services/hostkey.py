@@ -4,6 +4,7 @@ import tempfile
 import paramiko
 
 from app import paths
+from app.constants import MIN_RSA_KEY_BITS
 from app.debug_log import debug, describe_error
 
 
@@ -41,7 +42,6 @@ def _write_atomic(data):
 
 
 # ───────────── host key ─────────────
-MIN_RSA_HOST_KEY_BITS = 2048
 
 
 def _load_legacy_rsa():
@@ -53,7 +53,7 @@ def _load_legacy_rsa():
     except Exception as e:
         debug._log("host key RSA load failed", describe_error(e))
         return None
-    if key.get_bits() < MIN_RSA_HOST_KEY_BITS:
+    if key.get_bits() < MIN_RSA_KEY_BITS:
         debug._log("host key RSA too small", key.get_bits())
         return None
     debug._log("host key loaded as RSA", key.get_bits())

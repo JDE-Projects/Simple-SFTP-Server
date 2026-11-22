@@ -20,8 +20,10 @@ from app.services.pubkeys import (
     is_valid_key,
     key_identity,
     key_name_problem,
+    key_strength_problem,
     read_keys,
     read_keys_file,
+    weak_key_bits,
 )
 from simple_sftp_server import APP_VERSION
 from tests.sftp_helpers import authorized_key_line, sftp_key
@@ -103,7 +105,7 @@ def test_key_name_problem_limits_and_hides_name():
 
 def test_describe_key_types_comments_and_fingerprint():
     ed25519_line = _public_line(ed25519.Ed25519PrivateKey.generate(), "alice laptop")
-    rsa_line = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=1024))
+    rsa_line = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=2048))
     ecdsa_line = _public_line(ec.generate_private_key(ec.SECP256R1()))
 
     assert describe_key(ed25519_line)["type"] == "ed25519"
@@ -114,6 +116,29 @@ def test_describe_key_types_comments_and_fingerprint():
     key_type, encoded, *_ = ed25519_line.split()
     loaded = paramiko.PKey.from_type_string(key_type, base64.b64decode(encoded, validate=True))
     assert describe_key(ed25519_line)["fingerprint"] == fingerprint_sha256(loaded)
+
+
+def test_weak_key_bits_accepts_strong_rsa_and_ed25519():
+    weak = paramiko.RSAKey.generate(1024)
+    strong = paramiko.RSAKey.generate(2048)
+    ed25519_line = _public_line(ed25519.Ed25519PrivateKey.generate())
+    key_type, encoded, *_ = ed25519_line.split()
+    ed25519_key = paramiko.PKey.from_type_string(key_type, base64.b64decode(encoded, validate=True))
+
+    assert weak_key_bits(weak) == 1024
+    assert weak_key_bits(strong) is None
+    assert weak_key_bits(ed25519_key) is None
+
+
+def test_key_strength_problem_reports_only_weak_rsa_keys():
+    weak = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=1024))
+    strong = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=2048))
+
+    assert key_strength_problem(weak) == (
+        "This is a 1024-bit RSA key, which is too weak. Use an RSA key of 2048 bits or more, "
+        "or an Ed25519 key.")
+    assert key_strength_problem(strong) is None
+    assert key_strength_problem("garbage") is None
 
 
 def test_save_user_stores_full_list_and_removes_a_key(tmp_path, monkeypatch):
@@ -136,7 +161,7 @@ def test_save_user_requires_key_when_none_is_stored(tmp_path, monkeypatch):
     result = api.save_user(_user_payload(home, []))
 
     assert result == {"ok": False,
-                      "error": "Add at least one public key (or switch to password auth)."}
+                      "error": "Add at least one valid public key (or switch to password auth)."}
     assert api._load_config()["users"] == []
 
 
@@ -170,6 +195,26 @@ def test_pick_key_file_and_check_public_key_return_every_key(tmp_path, monkeypat
         "ok": False, "error": "That is a private key. Choose the .pub file next to it instead."}
 
 
+def test_check_public_key_refuses_one_weak_rsa_key(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    weak = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=1024))
+
+    assert api.check_public_key(weak) == {"ok": False, "error": (
+        "This is a 1024-bit RSA key, which is too weak. Use an RSA key of 2048 bits or more, "
+        "or an Ed25519 key.")}
+
+
+def test_check_public_key_numbers_a_weak_key_in_a_list(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    ed25519_line = _public_line(ed25519.Ed25519PrivateKey.generate())
+    weak = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=1024))
+
+    result = api.check_public_key(f"{ed25519_line}\n{weak}")
+
+    assert result["ok"] is False
+    assert result["error"].startswith("Key 2: ")
+
+
 def test_public_users_include_key_description(tmp_path, monkeypatch):
     api = _api(tmp_path, monkeypatch)
     line = _public_line(ed25519.Ed25519PrivateKey.generate(), "alice laptop")
@@ -180,7 +225,7 @@ def test_public_users_include_key_description(tmp_path, monkeypatch):
 
     assert users[0]["key"] == describe_key(line)
     assert users[0]["keys"] == [{"line": line, "valid": True, "enabled": True,
-                                  **describe_key(line), "name_problem": None}]
+                                  **describe_key(line), "name_problem": None, "weak": None}]
     assert users[0]["key_count"] == 1
     assert users[1]["key"] is None
     assert users[1]["keys"] == []
@@ -195,8 +240,8 @@ def test_public_users_returns_invalid_stored_key_in_order(tmp_path, monkeypatch)
     }]})
 
     assert users[0]["keys"] == [
-        {"line": "junk", "valid": False, "enabled": True, "type": "", "comment": "", "fingerprint": "", "name_problem": None},
-        {"line": line, "valid": True, "enabled": True, **describe_key(line), "name_problem": None},
+        {"line": "junk", "valid": False, "enabled": True, "type": "", "comment": "", "fingerprint": "", "name_problem": None, "weak": None},
+        {"line": line, "valid": True, "enabled": True, **describe_key(line), "name_problem": None, "weak": None},
     ]
     assert users[0]["key"] == describe_key(line)
     assert users[0]["key_count"] == 1
@@ -224,7 +269,7 @@ def test_describe_key_survives_damaged_stored_key():
 def test_read_keys_returns_every_key_in_order():
     lines = [
         _public_line(ed25519.Ed25519PrivateKey.generate(), "alice"),
-        _public_line(rsa.generate_private_key(public_exponent=65537, key_size=1024), "bob"),
+        _public_line(rsa.generate_private_key(public_exponent=65537, key_size=2048), "bob"),
         _public_line(ec.generate_private_key(ec.SECP256R1()), "carol"),
     ]
 
@@ -425,6 +470,95 @@ def test_save_user_refuses_more_than_25_new_keys(tmp_path, monkeypatch):
                       "error": "A user can have at most 25 keys. Remove one before adding another."}
 
 
+def test_save_user_refuses_a_new_weak_rsa_key(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    weak = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=1024))
+
+    assert api.save_user(_user_payload(home, [weak])) == {"ok": False, "error": (
+        "Key 1 is a 1024-bit RSA key, which is too weak. Remove it before saving.")}
+
+
+def _user_with_saved_weak_key(api, home, weak, strong=None):
+    cfg = api._load_config()
+    cfg["users"] = [{"username": "alice", "home": str(home), "permissions": _perms(),
+                     "auth": "key", "authorized_keys": [weak] + ([strong] if strong else [])}]
+    assert api._save_config(cfg) is True
+
+
+def test_saved_weak_rsa_key_is_kept_and_renamed_only_as_an_off_key(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    weak = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=1024), "old")
+    strong = _public_line(ed25519.Ed25519PrivateKey.generate())
+    _user_with_saved_weak_key(api, home, weak, strong)
+
+    assert api.save_user(_user_payload(home, [strong], [weak]), original="alice")["ok"] is True
+    renamed = weak.rsplit(" ", 1)[0] + " renamed"
+    assert api.save_user(_user_payload(home, [strong], [renamed]), original="alice")["ok"] is True
+    stored = api._find_user("alice")
+    assert stored["authorized_keys"] == [strong]
+    assert stored["disabled_keys"] == [renamed]
+
+
+def test_saved_weak_rsa_key_cannot_be_saved_as_on(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    weak = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=1024))
+    strong = _public_line(ed25519.Ed25519PrivateKey.generate())
+    _user_with_saved_weak_key(api, home, weak, strong)
+
+    assert api.save_user(_user_payload(home, [strong, weak], []), original="alice") == {
+        "ok": False, "error": ("Key 2 is a 1024-bit RSA key, which is too weak to turn on. "
+                               "Close this window and try again.")}
+
+
+def test_user_whose_only_key_is_weak_needs_a_valid_key_to_save(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    weak = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=1024))
+    _user_with_saved_weak_key(api, home, weak)
+
+    assert api.save_user(_user_payload(home, [], [weak]), original="alice") == {
+        "ok": False, "error": "Add at least one valid public key (or switch to password auth)."}
+
+
+def test_save_user_refuses_another_weak_rsa_key(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    saved = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=1024))
+    new = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=1024))
+    cfg = api._load_config()
+    cfg["users"] = [{"username": "alice", "home": str(home), "permissions": _perms(),
+                     "auth": "key", "authorized_keys": [saved]}]
+    assert api._save_config(cfg) is True
+
+    strong = _public_line(ed25519.Ed25519PrivateKey.generate())
+
+    result = api.save_user(_user_payload(home, [strong], [saved, new]), original="alice")
+
+    assert result == {"ok": False, "error": (
+        "Off key 2 is a 1024-bit RSA key, which is too weak. Remove it before saving.")}
+
+
+def test_save_user_survives_non_text_entry_in_saved_off_keys(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    key = _public_line(ed25519.Ed25519PrivateKey.generate())
+    cfg = api._load_config()
+    cfg["users"] = [{"username": "alice", "home": str(home), "permissions": _perms(),
+                     "auth": "key", "authorized_keys": [key], "disabled_keys": [None, 5]}]
+    assert api._save_config(cfg) is True
+
+    assert api.save_user(_user_payload(home, [key]), original="alice")["ok"] is True
+
+
 def test_over_limit_existing_user_can_rename_or_remove_but_not_add(tmp_path, monkeypatch):
     api = _api(tmp_path, monkeypatch)
     home = tmp_path / "alice"
@@ -453,6 +587,19 @@ def test_public_users_reports_name_problem(tmp_path, monkeypatch):
     user = api._public_users({"users": [{"username": "alice", "authorized_keys": [line]}]})[0]
 
     assert user["keys"][0]["name_problem"] is not None
+
+
+def test_public_users_marks_weak_rsa_keys(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    weak = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=1024))
+    strong = _public_line(rsa.generate_private_key(public_exponent=65537, key_size=2048))
+
+    user = api._public_users({"users": [{"username": "alice", "auth": "key",
+                                           "authorized_keys": [weak, strong]}]})[0]
+
+    assert user["keys"][0]["weak"] == 1024
+    assert user["keys"][1]["weak"] is None
+    assert user["key"] == describe_key(strong)
 
 
 def test_save_user_disconnects_only_when_access_changes(tmp_path, monkeypatch):
@@ -553,7 +700,7 @@ def test_save_user_refuses_all_keys_off_without_writing(tmp_path, monkeypatch):
     result = api.save_user(_user_payload(home, [], [disabled]))
 
     assert result == {"ok": False,
-                      "error": "Add at least one public key (or switch to password auth)."}
+                      "error": "Add at least one valid public key (or switch to password auth)."}
     assert (tmp_path / "server_config.json").read_bytes() == before
 
 
@@ -681,7 +828,7 @@ def test_save_user_refuses_invalid_disabled_key_without_writing(tmp_path, monkey
 
 
 def test_check_auth_publickey_skips_non_string_stored_keys():
-    key = paramiko.RSAKey.generate(1024)
+    key = paramiko.RSAKey.generate(2048)
     user = {"username": "alice", "auth": "key", "authorized_keys": [None, key.get_name() + " " + key.get_base64()]}
 
     class AuthService:
