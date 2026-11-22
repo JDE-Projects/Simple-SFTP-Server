@@ -162,18 +162,23 @@ class Api:
         out = []
         for u in cfg.get("users", []):
             keys = []
-            for stored_key in u.get("authorized_keys", []):
-                if not isinstance(stored_key, str) or not stored_key.strip():
+            for stored_keys, enabled in ((u.get("authorized_keys", []), True),
+                                        (u.get("disabled_keys", []), False)):
+                if not isinstance(stored_keys, list):
                     continue
-                normalized = " ".join(stored_key.split())
-                valid = is_valid_key(normalized)
-                described = describe_key(normalized) if valid else None
-                keys.append({"line": stored_key, "valid": valid,
-                             "type": described["type"] if described else "",
-                             "comment": described["comment"] if described else "",
-                             "fingerprint": described["fingerprint"] if described else "",
-                             "name_problem": key_name_problem(stored_key)})
-            valid_keys = [key for key in keys if key["valid"]]
+                for stored_key in stored_keys:
+                    if not isinstance(stored_key, str) or not stored_key.strip():
+                        continue
+                    normalized = " ".join(stored_key.split())
+                    valid = is_valid_key(normalized)
+                    described = describe_key(normalized) if valid else None
+                    keys.append({"line": stored_key, "valid": valid, "enabled": enabled,
+                                 "type": described["type"] if described else "",
+                                 "comment": described["comment"] if described else "",
+                                 "fingerprint": described["fingerprint"] if described else "",
+                                 "name_problem": key_name_problem(stored_key)})
+            valid_keys = [key for key in keys if key["valid"] and key["enabled"]]
+            valid_off_keys = [key for key in keys if key["valid"] and not key["enabled"]]
             out.append({"username": u.get("username"), "home": u.get("home"),
                         "permissions": perms_for(u),
                         "auth": u.get("auth", "password"),
@@ -184,6 +189,7 @@ class Api:
                                 if valid_keys else None),
                         "keys": keys,
                         "key_count": len(valid_keys),
+                        "off_count": len(valid_off_keys),
                         "managed_folder": bool(u.get("managed_folder"))})
         return out
 
@@ -290,28 +296,37 @@ class Api:
             return {"ok": False, "error": "Grant the user at least one permission."}
         auth = p.get("auth", "password")
         authorized_keys = None
+        disabled_keys_supplied = "disabled_keys" in p
         if auth in ("key", "both"):
             authorized_keys = p.get("authorized_keys")
-            if not isinstance(authorized_keys, list) or not all(
-                    isinstance(key, str) for key in authorized_keys):
-                return {"ok": False, "error": "The key list could not be read. Close this window and try again."}
-            validated_keys = []
-            for position, key in enumerate(authorized_keys, start=1):
-                parsed, error = read_keys(key)
-                if error or len(parsed) != 1:
-                    return {"ok": False,
-                            "error": f"Key {position} is not a valid public key. Remove it before saving."}
-                if key_name_problem(parsed[0]):
-                    return {"ok": False,
-                            "error": f"Key {position} has an invalid name. Rename it before saving."}
-                validated_keys.append(parsed[0])
-            deduplicated_keys = []
-            seen_identities = set()
-            for key in validated_keys:
-                identity = key_identity(key)
-                if identity not in seen_identities:
-                    seen_identities.add(identity)
-                    deduplicated_keys.append(key)
+            def validate_key_list(keys, label):
+                if not isinstance(keys, list) or not all(isinstance(key, str) for key in keys):
+                    return None, "The key list could not be read. Close this window and try again."
+                validated = []
+                for position, key in enumerate(keys, start=1):
+                    parsed, error = read_keys(key)
+                    if error or len(parsed) != 1:
+                        return None, f"{label} {position} is not a valid public key. Remove it before saving."
+                    if key_name_problem(parsed[0]):
+                        return None, f"{label} {position} has an invalid name. Rename it before saving."
+                    validated.append(parsed[0])
+                deduplicated = []
+                seen_identities = set()
+                for key in validated:
+                    identity = key_identity(key)
+                    if identity not in seen_identities:
+                        seen_identities.add(identity)
+                        deduplicated.append(key)
+                return deduplicated, None
+
+            deduplicated_keys, error = validate_key_list(authorized_keys, "Key")
+            if error:
+                return {"ok": False, "error": error}
+            deduplicated_disabled_keys = None
+            if disabled_keys_supplied:
+                deduplicated_disabled_keys, error = validate_key_list(p["disabled_keys"], "Off key")
+                if error:
+                    return {"ok": False, "error": error}
             if not deduplicated_keys:
                 return {"ok": False, "error": "Add at least one public key (or switch to password auth)."}
         with self._cfg_lock:
@@ -321,12 +336,31 @@ class Api:
                 if u.get("username") == username and username != (original or ""):
                     return {"ok": False, "error": "A user with that name already exists."}
             existing = next((u for u in users if u.get("username") == (original or username)), None)
-            if auth in ("key", "both") and len(deduplicated_keys) > MAX_KEYS_PER_USER:
+            if auth in ("key", "both"):
+                existing_disabled_keys = existing.get("disabled_keys", []) if existing else []
+                if not isinstance(existing_disabled_keys, list):
+                    existing_disabled_keys = []
+                final_disabled_keys = (deduplicated_disabled_keys if disabled_keys_supplied
+                                       else existing_disabled_keys)
+                on_identities = {key_identity(key) for key in deduplicated_keys}
+                off_identities = {key_identity(key) for key in final_disabled_keys
+                                  if isinstance(key, str) and key_identity(key) is not None}
+                if on_identities & off_identities:
+                    return {"ok": False,
+                            "error": "A key can't be both on and off. Close this window and try again."}
+            if auth in ("key", "both") and \
+                    len(deduplicated_keys) + len(final_disabled_keys) > MAX_KEYS_PER_USER:
                 existing_identities = {
                     key_identity(key) for key in existing.get("authorized_keys", [])
                     if isinstance(key, str) and key_identity(key) is not None
                 } if existing else set()
-                if not all(key_identity(key) in existing_identities for key in deduplicated_keys):
+                if existing and isinstance(existing.get("disabled_keys", []), list):
+                    existing_identities.update(
+                        key_identity(key) for key in existing.get("disabled_keys", [])
+                        if isinstance(key, str) and key_identity(key) is not None)
+                submitted_keys = deduplicated_keys + (
+                    deduplicated_disabled_keys if disabled_keys_supplied else [])
+                if not all(key_identity(key) in existing_identities for key in submitted_keys):
                     return {"ok": False,
                             "error": "A user can have at most 25 keys. Remove one before adding another."}
             old_username = existing.get("username") if existing else None
@@ -373,8 +407,14 @@ class Api:
                 rec.pop("password_hash", None)
             if auth in ("key", "both"):
                 rec["authorized_keys"] = deduplicated_keys
+                if disabled_keys_supplied:
+                    if deduplicated_disabled_keys:
+                        rec["disabled_keys"] = deduplicated_disabled_keys
+                    else:
+                        rec.pop("disabled_keys", None)
             else:
                 rec.pop("authorized_keys", None)
+                rec.pop("disabled_keys", None)
             if existing is None:
                 users.append(rec)
             users.sort(key=lambda x: x.get("username", "").lower())

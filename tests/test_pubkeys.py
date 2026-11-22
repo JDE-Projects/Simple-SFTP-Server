@@ -24,6 +24,10 @@ from app.services.pubkeys import (
     read_keys_file,
 )
 from simple_sftp_server import APP_VERSION
+from tests.sftp_helpers import authorized_key_line, sftp_key
+
+
+_MISSING = object()
 
 
 def _public_line(private_key, comment=""):
@@ -52,9 +56,12 @@ def _perms():
     return {name: True for name in DEFAULT_PERMISSIONS}
 
 
-def _user_payload(home, keys):
-    return {"username": "alice", "home": str(home), "permissions": _perms(),
-            "auth": "key", "authorized_keys": keys}
+def _user_payload(home, keys, disabled_keys=_MISSING):
+    payload = {"username": "alice", "home": str(home), "permissions": _perms(),
+               "auth": "key", "authorized_keys": keys}
+    if disabled_keys is not _MISSING:
+        payload["disabled_keys"] = disabled_keys
+    return payload
 
 
 def test_clean_key_name_shortens_name_without_changing_identity():
@@ -172,7 +179,8 @@ def test_public_users_include_key_description(tmp_path, monkeypatch):
     ]})
 
     assert users[0]["key"] == describe_key(line)
-    assert users[0]["keys"] == [{"line": line, "valid": True, **describe_key(line), "name_problem": None}]
+    assert users[0]["keys"] == [{"line": line, "valid": True, "enabled": True,
+                                  **describe_key(line), "name_problem": None}]
     assert users[0]["key_count"] == 1
     assert users[1]["key"] is None
     assert users[1]["keys"] == []
@@ -187,8 +195,8 @@ def test_public_users_returns_invalid_stored_key_in_order(tmp_path, monkeypatch)
     }]})
 
     assert users[0]["keys"] == [
-        {"line": "junk", "valid": False, "type": "", "comment": "", "fingerprint": "", "name_problem": None},
-        {"line": line, "valid": True, **describe_key(line), "name_problem": None},
+        {"line": "junk", "valid": False, "enabled": True, "type": "", "comment": "", "fingerprint": "", "name_problem": None},
+        {"line": line, "valid": True, "enabled": True, **describe_key(line), "name_problem": None},
     ]
     assert users[0]["key"] == describe_key(line)
     assert users[0]["key_count"] == 1
@@ -500,6 +508,176 @@ def test_password_only_save_drops_authorized_keys(tmp_path, monkeypatch):
 
     assert result["ok"] is True
     assert "authorized_keys" not in api._load_config()["users"][0]
+
+
+def test_save_user_stores_enabled_and_disabled_key_lists(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    enabled = _public_line(ed25519.Ed25519PrivateKey.generate(), "enabled")
+    disabled = _public_line(ed25519.Ed25519PrivateKey.generate(), "disabled")
+
+    assert api.save_user(_user_payload(home, [enabled], [disabled]))["ok"] is True
+
+    user = api._load_config()["users"][0]
+    assert user["authorized_keys"] == [enabled]
+    assert user["disabled_keys"] == [disabled]
+    assert api.save_user(_user_payload(home, [enabled], []), original="alice")["ok"] is True
+    assert "disabled_keys" not in api._load_config()["users"][0]
+
+
+def test_disabled_key_survives_restart_and_is_refused(tmp_path, monkeypatch, sftp_server):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    enabled = paramiko.RSAKey.generate(2048)
+    disabled = paramiko.RSAKey.generate(2048)
+    assert api.save_user(_user_payload(
+        home, [authorized_key_line(enabled)], [authorized_key_line(disabled)]))["ok"] is True
+
+    restarted = Api(APP_VERSION)
+    users = restarted._public_users(restarted._load_config())
+    assert users[0]["keys"][1]["enabled"] is False
+    handle = sftp_server(restarted._load_config()["users"])
+    with pytest.raises(paramiko.AuthenticationException):
+        sftp_key(handle.port, "alice", disabled)
+
+
+def test_save_user_refuses_all_keys_off_without_writing(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    disabled = _public_line(ed25519.Ed25519PrivateKey.generate(), "disabled")
+    before = (tmp_path / "server_config.json").read_bytes()
+
+    result = api.save_user(_user_payload(home, [], [disabled]))
+
+    assert result == {"ok": False,
+                      "error": "Add at least one public key (or switch to password auth)."}
+    assert (tmp_path / "server_config.json").read_bytes() == before
+
+
+def test_older_style_save_preserves_disabled_keys(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    enabled = _public_line(ed25519.Ed25519PrivateKey.generate(), "enabled")
+    disabled = _public_line(ed25519.Ed25519PrivateKey.generate(), "disabled")
+    assert api.save_user(_user_payload(home, [enabled], [disabled]))["ok"] is True
+
+    assert api.save_user(_user_payload(home, [enabled]), original="alice")["ok"] is True
+
+    assert api._load_config()["users"][0]["disabled_keys"] == [disabled]
+
+
+@pytest.mark.parametrize("disabled_keys", ["x", [None]])
+def test_save_user_refuses_malformed_disabled_key_list_without_writing(tmp_path, monkeypatch, disabled_keys):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    enabled = _public_line(ed25519.Ed25519PrivateKey.generate(), "enabled")
+    before = (tmp_path / "server_config.json").read_bytes()
+
+    result = api.save_user(_user_payload(home, [enabled], disabled_keys))
+
+    assert result == {"ok": False,
+                      "error": "The key list could not be read. Close this window and try again."}
+    assert (tmp_path / "server_config.json").read_bytes() == before
+
+
+def test_save_user_refuses_key_in_both_lists_without_writing(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    key = _public_line(ed25519.Ed25519PrivateKey.generate(), "same")
+    before = (tmp_path / "server_config.json").read_bytes()
+
+    result = api.save_user(_user_payload(home, [key], [key]))
+
+    assert result == {"ok": False,
+                      "error": "A key can't be both on and off. Close this window and try again."}
+    assert (tmp_path / "server_config.json").read_bytes() == before
+
+
+def test_save_user_counts_enabled_and_disabled_keys_toward_limit(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    enabled = [_public_line(ed25519.Ed25519PrivateKey.generate(), f"on-{number}") for number in range(20)]
+    disabled = [_public_line(ed25519.Ed25519PrivateKey.generate(), f"off-{number}") for number in range(6)]
+
+    result = api.save_user(_user_payload(home, enabled, disabled))
+    assert result["error"] == "A user can have at most 25 keys. Remove one before adding another."
+
+    cfg = api._load_config()
+    cfg["users"] = [{"username": "alice", "home": str(home), "permissions": _perms(),
+                     "auth": "key", "authorized_keys": enabled, "disabled_keys": disabled}]
+    assert api._save_config(cfg) is True
+    assert api.save_user(_user_payload(home, enabled, disabled), original="alice")["ok"] is True
+
+
+def test_password_only_save_drops_enabled_and_disabled_keys(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    enabled = _public_line(ed25519.Ed25519PrivateKey.generate(), "enabled")
+    disabled = _public_line(ed25519.Ed25519PrivateKey.generate(), "disabled")
+    assert api.save_user(_user_payload(home, [enabled], [disabled]))["ok"] is True
+
+    result = api.save_user({"username": "alice", "home": str(home), "permissions": _perms(),
+                            "auth": "password", "password": "a password"}, original="alice")
+
+    assert result["ok"] is True
+    user = api._load_config()["users"][0]
+    assert "authorized_keys" not in user
+    assert "disabled_keys" not in user
+
+
+def test_save_user_reports_access_change_for_disabled_key_only(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    first = _public_line(ed25519.Ed25519PrivateKey.generate(), "first")
+    second = _public_line(ed25519.Ed25519PrivateKey.generate(), "second")
+    assert api.save_user(_user_payload(home, [first]))["ok"] is True
+
+    turned_off = api.save_user(_user_payload(home, [second], [first]), original="alice")
+    renamed = first.rsplit(" ", 1)[0] + " renamed"
+    renamed_off = api.save_user(_user_payload(home, [second], [renamed]), original="alice")
+
+    assert turned_off["access_changed"] is True
+    assert renamed_off["access_changed"] is False
+
+
+def test_public_users_flags_disabled_keys_and_counts_only_enabled_keys(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    enabled = _public_line(ed25519.Ed25519PrivateKey.generate(), "enabled")
+    disabled = _public_line(ed25519.Ed25519PrivateKey.generate(), "disabled")
+
+    user = api._public_users({"users": [{"username": "alice", "auth": "key",
+                                          "authorized_keys": [enabled],
+                                          "disabled_keys": [disabled, "damaged key"]}]})[0]
+
+    assert [key["line"] for key in user["keys"]] == [enabled, disabled, "damaged key"]
+    assert [key["enabled"] for key in user["keys"]] == [True, False, False]
+    assert user["key_count"] == 1
+    assert user["off_count"] == 1
+    assert user["keys"][2]["valid"] is False
+
+
+def test_save_user_refuses_invalid_disabled_key_without_writing(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    home = tmp_path / "alice"
+    home.mkdir()
+    enabled = _public_line(ed25519.Ed25519PrivateKey.generate(), "enabled")
+    before = (tmp_path / "server_config.json").read_bytes()
+
+    result = api.save_user(_user_payload(home, [enabled], ["damaged stored key"]))
+
+    assert result["ok"] is False
+    assert "Off key 1" in result["error"]
+    assert "damaged stored key" not in result["error"]
+    assert (tmp_path / "server_config.json").read_bytes() == before
 
 
 def test_check_auth_publickey_skips_non_string_stored_keys():

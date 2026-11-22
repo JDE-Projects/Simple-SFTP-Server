@@ -106,6 +106,37 @@ def test_key_auth_unauthorized_key_rejected(tmp_path, sftp_server):
         sftp_key(handle.port, "alice", other_key)
 
 
+def test_key_auth_disabled_key_rejected(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    enabled_key = paramiko.RSAKey.generate(2048)
+    disabled_key = paramiko.RSAKey.generate(2048)
+    user = make_user("alice", home, _perms(), auth="key",
+                     authorized_keys=[authorized_key_line(enabled_key)],
+                     disabled_keys=[authorized_key_line(disabled_key)])
+    handle = sftp_server([user])
+
+    with pytest.raises(paramiko.AuthenticationException):
+        sftp_key(handle.port, "alice", disabled_key)
+
+
+def test_key_auth_enabled_key_connects_beside_disabled_key(tmp_path, sftp_server):
+    home = tmp_path / "home"
+    home.mkdir()
+    enabled_key = paramiko.RSAKey.generate(2048)
+    disabled_key = paramiko.RSAKey.generate(2048)
+    user = make_user("alice", home, _perms(), auth="key",
+                     authorized_keys=[authorized_key_line(enabled_key)],
+                     disabled_keys=[authorized_key_line(disabled_key)])
+    handle = sftp_server([user])
+
+    client, sftp = sftp_key(handle.port, "alice", enabled_key)
+    try:
+        assert sftp.listdir(".") == []
+    finally:
+        _close(client, sftp)
+
+
 def test_key_only_user_rejects_password_auth(tmp_path, sftp_server):
     home = tmp_path / "home"
     home.mkdir()
