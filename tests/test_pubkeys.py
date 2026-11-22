@@ -691,6 +691,12 @@ def test_check_auth_publickey_skips_non_string_stored_keys():
         def find_user(self, username):
             return user if username == "alice" else None
 
+        def register_user(self, sid, transport, username):
+            return True
+
+        def unregister_user(self, sid, transport, username):
+            pass
+
     iface = server_module.ServerIface(AuthService(), "127.0.0.1", 1)
 
     assert iface.check_auth_publickey("alice", key) == paramiko.AUTH_SUCCESSFUL

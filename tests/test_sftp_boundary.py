@@ -278,6 +278,12 @@ class _AuthService:
     def find_user(self, username):
         return self._users.get(username)
 
+    def register_user(self, sid, transport, username):
+        return True
+
+    def unregister_user(self, sid, transport, username):
+        pass
+
 
 def test_every_username_is_offered_the_same_sign_in_methods(tmp_path):
     key_line = authorized_key_line(paramiko.RSAKey.generate(2048))
